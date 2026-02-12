@@ -45,8 +45,8 @@ pub fn ui(frame: &mut Frame, app: &App) {
         ])
         .split(inner);
 
-    // row 1: 3 cols
-    let row1_cols = Layout::default()
+    // header row
+    let header = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Percentage(33),
@@ -55,30 +55,33 @@ pub fn ui(frame: &mut Frame, app: &App) {
         ])
         .split(rows[0]);
 
-    // row 2: 2 cols
-    let row2_cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+    // main widgets
+    let main_widgets = Layout::default()
+        .direction(app.main_widget_orientation)
+        .constraints([
+            Constraint::Percentage(app.main_widget_split),
+            Constraint::Percentage(100 - app.main_widget_split),
+        ])
         .split(rows[1]);
 
-    // row 3: 2 cols
-    let row3_cols = Layout::default()
+    // footer row
+    let footer = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
         .split(rows[2]);
 
-    // render row1
-    render_run_info(frame, row1_cols[0], app);
-    render_summary(frame, row1_cols[1], &app.metrics);
-    render_row1_col3(frame, row1_cols[2], &app.metrics);
+    // render header
+    render_run_info(frame, header[0], app);
+    render_summary(frame, header[1], &app.metrics);
+    render_header_right(frame, header[2], &app.metrics);
 
-    // render row2
-    render_row2_col1(frame, row2_cols[0], app);
-    render_row2_col2(frame, row2_cols[1], &app.metrics);
+    // render main widgets
+    render_main_1(frame, main_widgets[0], app);
+    render_main_2(frame, main_widgets[1], &app.metrics);
 
-    // render row3
-    render_latest_output_lines(frame, row3_cols[0], app);
-    render_row3_col2(frame, row3_cols[1], &app.metrics);
+    // render footer
+    render_latest_output_lines(frame, footer[0], app);
+    render_footer_right(frame, footer[1], &app.metrics);
 }
 
 fn render_run_info(frame: &mut Frame, area: Rect, app: &App) {
@@ -120,13 +123,13 @@ fn render_summary(frame: &mut Frame, area: Rect, metrics: &Metrics) {
     }
 }
 
-fn render_row1_col3(frame: &mut Frame, area: Rect, metrics: &Metrics) {
+fn render_header_right(frame: &mut Frame, area: Rect, metrics: &Metrics) {
     match metrics {
         Metrics::Pw(_) => {
             frame.render_widget(
                 Block::new()
                     .borders(Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
-                    .title(Line::from(" Row1 Col3 ").centered()),
+                    .title(Line::from(" Header Right ").centered()),
                 area,
             );
         }
@@ -134,14 +137,14 @@ fn render_row1_col3(frame: &mut Frame, area: Rect, metrics: &Metrics) {
             frame.render_widget(
                 Block::new()
                     .borders(Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
-                    .title(Line::from(" Row1 Col3 ").centered()),
+                    .title(Line::from(" Header Right ").centered()),
                 area,
             );
         }
     }
 }
 
-fn render_row2_col1(frame: &mut Frame, area: Rect, app: &App) {
+fn render_main_1(frame: &mut Frame, area: Rect, app: &App) {
     match &app.metrics {
         Metrics::Pw(pw) => crate::pw::ui::render_total_energy_chart(frame, area, pw),
         Metrics::Ph(ph) => {
@@ -150,24 +153,28 @@ fn render_row2_col1(frame: &mut Frame, area: Rect, app: &App) {
     }
 }
 
-fn render_row2_col2(frame: &mut Frame, area: Rect, metrics: &Metrics) {
+fn render_main_2(frame: &mut Frame, area: Rect, metrics: &Metrics) {
     match metrics {
         Metrics::Pw(pw) => crate::pw::ui::render_scf_accuracy_chart(frame, area, pw),
         Metrics::Ph(ph) => crate::ph::ui::render_scf_accuracy_chart(frame, area, ph),
     }
 }
 
-fn render_row3_col2(frame: &mut Frame, area: Rect, metrics: &Metrics) {
+fn render_footer_right(frame: &mut Frame, area: Rect, metrics: &Metrics) {
     match metrics {
         Metrics::Pw(_) => {
             frame.render_widget(
-                Block::bordered().title(Line::from(" Row3 Col2 ").centered()),
+                Block::bordered()
+                    .title(Line::from(" Footer Right ").centered())
+                    .title_bottom(Line::from("adj.layout:WASD/↑←↓→/Space ").centered()),
                 area,
             );
         }
         Metrics::Ph(_) => {
             frame.render_widget(
-                Block::bordered().title(Line::from(" Row3 Col2 ").centered()),
+                Block::bordered()
+                    .title(Line::from(" Footer Right ").centered())
+                    .title_bottom(Line::from("adj.layout:WASD/↑←↓→/Space ").right_aligned()),
                 area,
             );
         }

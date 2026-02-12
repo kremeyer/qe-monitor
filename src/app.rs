@@ -33,6 +33,9 @@ impl Default for Metrics {
 #[derive(Debug)]
 pub struct App {
     exit: bool,
+    pub main_widget_split: u16, // percentage for main widget split
+    pub main_widget_orientation: ratatui::layout::Direction, // horizontal or vertical
+
     pub filename: PathBuf,
     pub calc_type: CalcType,
 
@@ -48,6 +51,8 @@ impl App {
     pub fn new(filename: PathBuf, calc_type: CalcType) -> Self {
         let mut app = Self {
             exit: false,
+            main_widget_split: 50,
+            main_widget_orientation: ratatui::layout::Direction::Horizontal,
             filename,
             calc_type,
             run_info: RunInfo::default(),
@@ -100,6 +105,29 @@ impl App {
     fn handle_key_event(&mut self, key_event: KeyEvent) {
         if let KeyCode::Char('q') = key_event.code {
             self.exit = true;
+        }
+
+        if let KeyCode::Char(' ') = key_event.code {
+            if self.main_widget_orientation == ratatui::layout::Direction::Horizontal {
+                self.main_widget_orientation = ratatui::layout::Direction::Vertical
+            } else {
+                self.main_widget_orientation = ratatui::layout::Direction::Horizontal
+            }
+        }
+        if self.main_widget_orientation == ratatui::layout::Direction::Horizontal {
+            if let KeyCode::Char('a') | KeyCode::Left = key_event.code {
+                self.main_widget_split = self.main_widget_split.saturating_sub(15).max(20);
+            }
+            if let KeyCode::Char('d') | KeyCode::Right = key_event.code {
+                self.main_widget_split = (self.main_widget_split + 15).min(80);
+            }
+        } else {
+            if let KeyCode::Char('w') | KeyCode::Up = key_event.code {
+                self.main_widget_split = self.main_widget_split.saturating_sub(15).max(20);
+            }
+            if let KeyCode::Char('s') | KeyCode::Down = key_event.code {
+                self.main_widget_split = (self.main_widget_split + 15).min(80);
+            }
         }
     }
 
