@@ -81,7 +81,7 @@ pub fn ui(frame: &mut Frame, app: &App) {
 
     // render footer
     render_latest_output_lines(frame, footer[0], app);
-    render_footer_right(frame, footer[1], &app.metrics);
+    render_footer_right(frame, footer[1], app);
 }
 
 fn render_run_info(frame: &mut Frame, area: Rect, app: &App) {
@@ -160,25 +160,18 @@ fn render_main_2(frame: &mut Frame, area: Rect, metrics: &Metrics) {
     }
 }
 
-fn render_footer_right(frame: &mut Frame, area: Rect, metrics: &Metrics) {
-    match metrics {
-        Metrics::Pw(_) => {
-            frame.render_widget(
-                Block::bordered()
-                    .title(Line::from(" Footer Right ").centered())
-                    .title_bottom(Line::from("adj.layout:WASD/↑←↓→/Space ").centered()),
-                area,
-            );
-        }
-        Metrics::Ph(_) => {
-            frame.render_widget(
-                Block::bordered()
-                    .title(Line::from(" Footer Right ").centered())
-                    .title_bottom(Line::from("adj.layout:WASD/↑←↓→/Space ").right_aligned()),
-                area,
-            );
-        }
-    }
+fn render_footer_right(frame: &mut Frame, area: Rect, app: &App) {
+    let shortcuts = if app.main_widget_orientation == Direction::Horizontal {
+        "adj. layout: A←→D Space "
+    } else {
+        "adj. layout: W↑↓S Space "
+    };
+    frame.render_widget(
+        Block::bordered()
+            .title(Line::from(" Footer Right ").centered())
+            .title_bottom(Line::from(shortcuts).right_aligned()),
+        area,
+    );
 }
 
 fn render_latest_output_lines(frame: &mut Frame, area: Rect, app: &App) {
