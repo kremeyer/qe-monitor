@@ -244,48 +244,41 @@ pub fn render_convergence_chart(
     let x_mid = (x_min + x_max) / 2.0;
     let y_mid = (y_min + y_max) / 2.0;
 
-    let colors = [Color::LightRed, Color::LightYellow, Color::LightGreen];
+    let colors = [Color::LightGreen, Color::LightYellow, Color::LightRed];
 
-    // Prepare threshold line data if needed
-    let threshold_line: Option<Vec<(f64, f64)>> = threshold.and_then(|thr| {
-        let y_threshold = thr.max(1e-30).log10();
-        // Only create line if threshold is within visible range
-        if y_threshold >= y_min && y_threshold <= y_max {
-            Some(vec![(x_min, y_threshold), (x_max, y_threshold)])
-        } else {
-            None
-        }
+    // Prepare threshold line data
+    let threshold_line: Option<Vec<(f64, f64)>> = threshold.map(|thr| {
+        let y_threshold = thr.max(1e-22).log10();
+        vec![(x_min, y_threshold), (x_max, y_threshold)]
     });
 
-    // Build datasets with ratatui type
     let mut datasets: Vec<Dataset> = Vec::new();
-    for (i, points) in all_points.iter().rev().enumerate() {
-        let name = format!("-{}", i + 1);
+
+    // Add threshold line dataset
+    if let Some(ref line) = threshold_line {
+        datasets.push(
+            Dataset::default()
+                .name("thr")
+                .graph_type(GraphType::Line)
+                .marker(symbols::Marker::Braille)
+                .style(Style::default().fg(Color::DarkGray))
+                .data(line),
+        );
+    }
+
+    // Add data points
+    let n = all_points.len();
+    for (i, points) in all_points.iter().enumerate() {
+        let name = format!("-{}", n - i);
         let color_idx = i % colors.len();
-        let mut dataset = Dataset::default()
+        let dataset = Dataset::default()
             .name(name)
             .graph_type(GraphType::Scatter)
             .style(Style::default().fg(colors[color_idx]))
             .data(points)
             .marker(symbols::Marker::Dot);
 
-        // Use Braille marker only for the latest (first dataset = -1)
-        if i == 0 {
-            dataset = dataset.marker(symbols::Marker::Dot);
-        }
-
         datasets.push(dataset);
-    }
-
-    // Add threshold line dataset if available
-    if let Some(ref line) = threshold_line {
-        datasets.push(
-            Dataset::default()
-                .name("thr")
-                .graph_type(GraphType::Line)
-                .style(Style::default().fg(Color::DarkGray))
-                .data(line),
-        );
     }
 
     let chart = Chart::new(datasets)
