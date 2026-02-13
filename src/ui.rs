@@ -2,7 +2,7 @@ use chrono::{DateTime, Local, Utc};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Style, Stylize},
     symbols,
     text::Line,
     widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph},
@@ -85,7 +85,7 @@ pub fn ui(frame: &mut Frame, app: &App) {
 }
 
 fn render_run_info(frame: &mut Frame, area: Rect, app: &App) {
-    let title = Line::from(" Run Info ");
+    let title = Line::from(" Run Info ").bold();
     let block = Block::new()
         .borders(Borders::LEFT | Borders::TOP | Borders::BOTTOM)
         .title(title.centered());
@@ -177,7 +177,7 @@ fn render_footer_right(frame: &mut Frame, area: Rect, app: &App) {
 fn render_latest_output_lines(frame: &mut Frame, area: Rect, app: &App) {
     let n_lines = area.height as usize - 2; // leave space for borders
 
-    let block = Block::bordered().title(Line::from(" Latest Output ").centered());
+    let block = Block::bordered().title(Line::from(" Latest Output ").bold().centered());
 
     let mut output_lines: Vec<Line> = app
         .qe_output
@@ -207,7 +207,7 @@ pub fn render_convergence_chart(
 ) {
     use core::f64;
 
-    let block = Block::bordered().title(Line::from(format!(" {} ", title)).centered());
+    let block = Block::bordered().title(Line::from(format!(" {} ", title)).bold().centered());
 
     if all_points.is_empty() || all_points.iter().all(|pts| pts.is_empty()) {
         frame.render_widget(block, area);
@@ -309,10 +309,10 @@ pub fn render_convergence_chart(
 
 pub fn stats_line(label: &str, xs: &[f64], decimals: usize) -> String {
     if xs.is_empty() {
-        return format!("{label}: —");
+        return format!("{label} —");
     }
     let (mu, sigma) = mean_std(xs);
-    format!("{label}: {mu:.d$} ± {sigma:.d$}", d = decimals)
+    format!("{label} {mu:.d$} ± {sigma:.d$}", d = decimals)
 }
 
 pub fn mean_std(xs: &[f64]) -> (f64, f64) {
