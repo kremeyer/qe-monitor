@@ -65,10 +65,8 @@ pub fn render_scf_summary(frame: &mut Frame, area: Rect, pw: &PwMetrics) {
             };
 
             // Scale durations to the chosen unit
-            let kpt_durations_scaled: Vec<f64> = kpt_durations
-                .iter()
-                .map(|&dt| dt / divisor)
-                .collect();
+            let kpt_durations_scaled: Vec<f64> =
+                kpt_durations.iter().map(|&dt| dt / divisor).collect();
 
             let est_time_left_scaled = est_time_left / divisor;
 
