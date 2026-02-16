@@ -169,13 +169,16 @@ pub fn render_scf_summary(frame: &mut Frame, area: Rect, pw: &PwMetrics) {
 }
 
 pub fn render_total_energy_chart(frame: &mut Frame, area: Rect, pm: &PwMetrics) {
+    // For NSCF calculations, show k-point timing chart
+    if pm.calc_type == PwCalcType::Nscf {
+        render_kpt_time_chart(frame, area, pm);
+        return;
+    }
+
     let e = &pm.total_energy;
 
     if e.len() < 2 {
-        let block = match pm.calc_type {
-            PwCalcType::Nscf => Block::bordered(),
-            PwCalcType::Scf => Block::bordered().title(Line::from(" log10(ΔE) ").bold().centered()),
-        };
+        let block = Block::bordered().title(Line::from(" log10(ΔE) ").bold().centered());
         frame.render_widget(block, area);
         return;
     }
@@ -282,4 +285,80 @@ pub fn render_scf_accuracy_chart(frame: &mut Frame, area: Rect, pw: &PwMetrics) 
         all_points,
         pw.conv_threshold,
     );
+}
+
+pub fn render_kpt_time_chart(frame: &mut Frame, area: Rect, pw: &PwMetrics) {
+    let block = Block::bordered().title(Line::from(" K-point Time ").bold().centered());
+
+    // Get the last band block
+    let band_block = match pw.band_blocks.last() {
+        Some(b) => b,
+        None => {
+            frame.render_widget(block, area);
+            return;
+        }
+    };
+
+    // Calculate individual k-point durations from cumulative times
+    let kpt_durations: Vec<f64> = band_block
+        .cpu_time
+        .windows(2)
+        .map(|w| w[1] - w[0])
+        .filter(|&dt| dt.is_finite() && dt > 0.0)
+        .collect();
+
+    if kpt_durations.is_empty() {
+        frame.render_widget(block, area);
+        return;
+    }
+
+    // Create points (k-point index, time)
+    let points: Vec<(f64, f64)> = kpt_durations
+        .iter()
+        .enumerate()
+        .map(|(i, &time)| ((i + 1) as f64, time))
+        .collect();
+
+    let x_min = 1.0;
+    let x_max = points.len() as f64;
+
+    // Calculate y bounds
+    let (mut y_min, mut y_max) = points
+        .iter()
+        .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), &(_, y)| {
+            (mn.min(y), mx.max(y))
+        });
+
+    let pad = ((y_max - y_min).abs() * 0.05).max(1e-6);
+    y_min = (y_min - pad).max(0.0);
+    y_max += pad;
+
+    let x_mid = (x_min + x_max) / 2.0;
+    let y_mid = (y_min + y_max) / 2.0;
+
+    let datasets = vec![
+        Dataset::default()
+            .graph_type(GraphType::Scatter)
+            .data(&points),
+    ];
+
+    let chart = Chart::new(datasets)
+        .block(block)
+        .x_axis(
+            Axis::default()
+                .title("k-point")
+                .bounds([x_min, x_max])
+                .labels([
+                    Line::from(format!("{:.0}", x_min)),
+                    Line::from(format!("{:.0}", x_mid)),
+                    Line::from(format!("{:.0}", x_max)),
+                ]),
+        )
+        .y_axis(Axis::default().title("time [s]").bounds([y_min, y_max]).labels([
+            Line::from(format!("{:.2}", y_min)),
+            Line::from(format!("{:.2}", y_mid)),
+            Line::from(format!("{:.2}", y_max)),
+        ]));
+
+    frame.render_widget(chart, area);
 }
