@@ -354,11 +354,16 @@ pub fn render_kpt_time_chart(frame: &mut Frame, area: Rect, pw: &PwMetrics) {
                     Line::from(format!("{:.0}", x_max)),
                 ]),
         )
-        .y_axis(Axis::default().title("time [s]").bounds([y_min, y_max]).labels([
-            Line::from(format!("{:.2}", y_min)),
-            Line::from(format!("{:.2}", y_mid)),
-            Line::from(format!("{:.2}", y_max)),
-        ]));
+        .y_axis(
+            Axis::default()
+                .title("time [s]")
+                .bounds([y_min, y_max])
+                .labels([
+                    Line::from(format!("{:.2}", y_min)),
+                    Line::from(format!("{:.2}", y_mid)),
+                    Line::from(format!("{:.2}", y_max)),
+                ]),
+        );
 
     frame.render_widget(chart, area);
 }

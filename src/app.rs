@@ -1,5 +1,6 @@
 use std::{
     io,
+    io::{Read, Seek, SeekFrom},
     path::PathBuf,
     time::{Duration, Instant, SystemTime},
 };
@@ -46,6 +47,7 @@ pub struct App {
     pub output_file: String,
     pub last_modified: Option<SystemTime>,
     last_size: u64,
+    pub last_parse_duration: Option<Duration>,
 }
 
 impl App {
@@ -65,11 +67,14 @@ impl App {
             output_file: String::new(),
             last_modified: None,
             last_size: 0,
+            last_parse_duration: None,
         };
 
         // initial read + parse
         app.output_file = std::fs::read_to_string(&app.filename).unwrap_or_default();
+        let t0 = Instant::now();
         app.parse_content();
+        app.last_parse_duration = Some(t0.elapsed());
 
         // store metadata snapshot
         if let Ok(md) = std::fs::metadata(&app.filename) {
@@ -142,8 +147,21 @@ impl App {
             return Ok(()); // no changes
         }
 
-        self.output_file = std::fs::read_to_string(&self.filename).unwrap_or_default();
+        // Only read the new bytes appended since the last check.
+        // If the file shrank (e.g. replaced), fall back to a full re-read.
+        if size >= self.last_size && self.last_size > 0 {
+            let mut f = std::fs::File::open(&self.filename)?;
+            f.seek(SeekFrom::Start(self.last_size))?;
+            let mut new_content = String::new();
+            f.read_to_string(&mut new_content)?;
+            self.output_file.push_str(&new_content);
+        } else {
+            self.output_file = std::fs::read_to_string(&self.filename).unwrap_or_default();
+        }
+
+        let t0 = Instant::now();
         self.parse_content();
+        self.last_parse_duration = Some(t0.elapsed());
 
         self.last_modified = modified;
         self.last_size = size;

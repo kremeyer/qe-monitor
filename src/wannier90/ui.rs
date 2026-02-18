@@ -1,27 +1,26 @@
 use ratatui::style::Stylize;
 use ratatui::widgets::Paragraph;
-use ratatui::{
-    Frame,
-    layout::Rect,
-    text::Line,
-    widgets::Block,
-};
+use ratatui::{Frame, layout::Rect, text::Line, widgets::Block};
 
 use crate::wannier90::WannierMetrics;
 
 pub fn render_summary(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
     let block = Block::bordered().title(Line::from(" Disentanglement ").bold().centered());
-    
+
     let mut lines: Vec<Line> = Vec::new();
 
     let has_disentanglement_str = if wm.has_disentanglement { "Yes" } else { "No" };
-    lines.push(Line::from("Band Disentanglement: ".to_string() + has_disentanglement_str));
+    lines.push(Line::from(
+        "Band Disentanglement: ".to_string() + has_disentanglement_str,
+    ));
     let disentanglement_converged_str = match wm.disentanglement_converged {
         Some(true) => "Yes",
         Some(false) => "No",
         None => "-",
     };
-    lines.push(Line::from("Disentanglement Converged: ".to_string() + disentanglement_converged_str));
+    lines.push(Line::from(
+        "Disentanglement Converged: ".to_string() + disentanglement_converged_str,
+    ));
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }

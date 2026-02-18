@@ -120,7 +120,9 @@ fn render_summary(frame: &mut Frame, area: Rect, metrics: &Metrics) {
     match metrics {
         Metrics::Pw(pw) => crate::pw::ui::render_scf_summary(frame, area, pw),
         Metrics::Ph(ph) => crate::ph::ui::render_phonon_summary(frame, area, ph),
-        Metrics::Wannier90(wannier90) => crate::wannier90::ui::render_summary(frame, area, wannier90),
+        Metrics::Wannier90(wannier90) => {
+            crate::wannier90::ui::render_summary(frame, area, wannier90)
+        }
     }
 }
 
@@ -169,7 +171,9 @@ fn render_main_2(frame: &mut Frame, area: Rect, metrics: &Metrics) {
     match metrics {
         Metrics::Pw(pw) => crate::pw::ui::render_scf_accuracy_chart(frame, area, pw),
         Metrics::Ph(ph) => crate::ph::ui::render_scf_accuracy_chart(frame, area, ph),
-        Metrics::Wannier90(wannier90) => crate::wannier90::ui::render_spread_chart(frame, area, wannier90),
+        Metrics::Wannier90(wannier90) => {
+            crate::wannier90::ui::render_spread_chart(frame, area, wannier90)
+        }
     }
 }
 
@@ -190,7 +194,13 @@ fn render_footer_right(frame: &mut Frame, area: Rect, app: &App) {
 fn render_latest_output_lines(frame: &mut Frame, area: Rect, app: &App) {
     let n_lines = area.height as usize - 2; // leave space for borders
 
-    let block = Block::bordered().title(Line::from(" Latest Output ").bold().centered());
+    let parse_time_str = app
+        .last_parse_duration
+        .map(|d| format!(" parsed in {:.1}ms ", d.as_secs_f64() * 1000.0))
+        .unwrap_or_default();
+    let block = Block::bordered()
+        .title(Line::from(parse_time_str).left_aligned())
+        .title(Line::from(" Latest Output ").bold().centered());
 
     let mut output_lines: Vec<Line> = app
         .output_file

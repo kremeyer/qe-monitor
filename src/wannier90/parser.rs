@@ -7,50 +7,49 @@ pub fn parse_run_info(wannier90_output: &str) -> RunInfo {
     for raw in wannier90_output.lines().take(100) {
         let line = raw.trim_start();
 
-        if line.contains("WANNIER90") {
-            // executable
+        if run_info.executable.is_none() && line.contains("WANNIER90") {
             run_info.executable = Some("Wannier90.x".to_string());
         }
 
-        if line.contains("Release:") {
-            // version
-            if let Some(pos) = line.find("Release:") {
-                let after = line[(pos + "Release:".len())..]
-                    .trim()
-                    .split_whitespace()
-                    .next()
-                    .map(|s| s.to_string());
-                run_info.version = after;
-            }
+        if run_info.version.is_none()
+            && let Some(pos) = line.find("Release:")
+        {
+            run_info.version = line[(pos + "Release:".len())..]
+                .split_whitespace()
+                .next()
+                .map(|s| s.to_string());
         }
 
-        if line.contains("Execution started on") {
-            // start time
-            if let Some(pos) = line.find("Execution started on") {
+        if run_info.start_time.is_none()
+            && let Some(pos) = line.find("Execution started on")
+        {
             let after = line[(pos + "Execution started on".len())..]
                 .trim()
                 .trim_matches('|')
                 .trim()
                 .replace(" at ", " ");
             run_info.start_time = Some(after);
-            }
         }
 
-        if line.contains("Running in serial") {
-            run_info.mpi_ranks = Some("1".to_string());
-        }
-
-        if line.contains("Running in parallel on") {
-            if let Some(pos) = line.find("Running in parallel on") {
-                let after = line[(pos + "Running in parallel on".len())..]
-                    .trim_start()
+        if run_info.mpi_ranks.is_none() {
+            if line.contains("Running in serial") {
+                run_info.mpi_ranks = Some("1".to_string());
+            } else if let Some(pos) = line.find("Running in parallel on") {
+                run_info.mpi_ranks = line[(pos + "Running in parallel on".len())..]
                     .split_whitespace()
                     .next()
                     .map(|s| s.to_string());
-                run_info.mpi_ranks = after;
             }
         }
 
+        // All header fields filled — no need to scan further
+        if run_info.executable.is_some()
+            && run_info.version.is_some()
+            && run_info.start_time.is_some()
+            && run_info.mpi_ranks.is_some()
+        {
+            break;
+        }
     }
 
     // Wannier90 only implicitly uses OpenMP for some low-level calls (e.g. BLAS)
@@ -65,17 +64,26 @@ pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
     let mut in_wannierization_block: bool = false;
     wm.wannierize_conv_threshold = -1.0;
     let mut conv_buffer_value = 0.0;
-    
+
     for raw in wannier90_output.lines() {
         let line = raw.trim_start();
 
-        if line.contains("Extraction of optimally-connected subspace") { in_disentanglement_block = true; }
-        if line.contains("Time to disentangle bands") { in_disentanglement_block = false; }
-        if line.contains("| Iter  Delta Spread     RMS Gradient      Spread (Ang^2)      Time  |<-- CONV") { in_wannierization_block = true; }
-        if line.contains("Time for wannierise") { in_wannierization_block = false; }
+        if line.contains("Extraction of optimally-connected subspace") {
+            in_disentanglement_block = true;
+        }
+        if line.contains("Time to disentangle bands") {
+            in_disentanglement_block = false;
+        }
+        if line.contains(
+            "| Iter  Delta Spread     RMS Gradient      Spread (Ang^2)      Time  |<-- CONV",
+        ) {
+            in_wannierization_block = true;
+        }
+        if line.contains("Time for wannierise") {
+            in_wannierization_block = false;
+        }
 
         if !in_disentanglement_block && !in_wannierization_block {
-
             if line.contains("Using band disentanglement") {
                 if line.contains("T") && line.contains(":") {
                     wm.has_disentanglement = true;
@@ -84,15 +92,15 @@ pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
                 }
             }
 
-            if line.contains("|  Convergence tolerence                     :") {
-                if let Some(pos) = line.find(':') {
-                    let after = line[(pos + 1)..]
-                        .trim()
-                        .trim_end_matches('|')
-                        .trim()
-                        .parse::<f64>()
-                        .ok();
-                    conv_buffer_value = after.unwrap();
+            if let Some(pos) = line.find("|  Convergence tolerence                     :") {
+                let after_colon = pos + "|  Convergence tolerence                     :".len();
+                if let Ok(val) = line[after_colon..]
+                    .trim()
+                    .trim_end_matches('|')
+                    .trim()
+                    .parse::<f64>()
+                {
+                    conv_buffer_value = val;
                 }
                 if wm.wannierize_conv_threshold < 0.0 {
                     wm.wannierize_conv_threshold = conv_buffer_value
@@ -104,13 +112,16 @@ pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
 
         if in_disentanglement_block {
             if line.contains("<-- DIS") && !line.contains("Iter") && !line.contains("+---") {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 5 {
-                    if let (Ok(delta), Ok(time)) = (parts[3].parse::<f64>(), parts[4].parse::<f64>()) {
-                        let block = wm.disentanglement_block.get_or_insert_with(DisentanglementBlock::default);
-                        block.delta_omega_i.push(delta);
-                        block.cpu_time.push(time);
-                    }
+                let mut parts = line.split_whitespace();
+                if let (Some(delta), Some(time)) = (
+                    parts.nth(3).and_then(|s| s.parse::<f64>().ok()),
+                    parts.next().and_then(|s| s.parse::<f64>().ok()),
+                ) {
+                    let block = wm
+                        .disentanglement_block
+                        .get_or_insert_with(DisentanglementBlock::default);
+                    block.delta_omega_i.push(delta);
+                    block.cpu_time.push(time);
                 }
             } else if line.contains("<<< Disentanglement convergence criteria satisfied >>>") {
                 wm.disentanglement_converged = Some(true);
@@ -119,23 +130,23 @@ pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
             }
         }
 
-        if in_wannierization_block {
-            if line.contains("<-- CONV") && !line.contains("Iter") && !line.contains("+---") && !line.contains("+----") {
-                let parts: Vec<&str> = line.split_whitespace().collect();
-                if parts.len() >= 5 {
-                    if let (Ok(delta), Ok(spread), Ok(time)) = (
-                        parts[1].parse::<f64>(),
-                        parts[3].parse::<f64>(),
-                        parts[4].parse::<f64>(),
-                    ) {
-                        wm.spread_block.delta_spread.push(delta);
-                        wm.spread_block.spread.push(spread);
-                        wm.spread_block.cpu_time.push(time);
-                    }
-                }
+        if in_wannierization_block
+            && line.contains("<-- CONV")
+            && !line.contains("Iter")
+            && !line.contains("+---")
+            && !line.contains("+----")
+        {
+            let mut parts = line.split_whitespace();
+            if let (Some(delta), Some(spread), Some(time)) = (
+                parts.nth(1).and_then(|s| s.parse::<f64>().ok()),
+                parts.nth(1).and_then(|s| s.parse::<f64>().ok()),
+                parts.next().and_then(|s| s.parse::<f64>().ok()),
+            ) {
+                wm.spread_block.delta_spread.push(delta);
+                wm.spread_block.spread.push(spread);
+                wm.spread_block.cpu_time.push(time);
             }
         }
-
     }
 
     wm

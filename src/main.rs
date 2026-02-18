@@ -3,8 +3,8 @@ use std::{env, io, path::PathBuf};
 mod app;
 mod ph;
 mod pw;
-mod wannier90;
 mod ui;
+mod wannier90;
 
 use app::App;
 use crossterm::{
@@ -83,7 +83,9 @@ fn detect_calc_type(content: &str) -> Option<CalcType> {
         Some(CalcType::Pw)
     } else if content.contains("Program PHONON v.") {
         Some(CalcType::Ph)
-    } else if content.contains("WANNIER90") && content.contains("Welcome to the Maximally-Localized") {
+    } else if content.contains("WANNIER90")
+        && content.contains("Welcome to the Maximally-Localized")
+    {
         Some(CalcType::Wannier90)
     } else {
         None
