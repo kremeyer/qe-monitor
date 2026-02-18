@@ -92,8 +92,8 @@ fn render_run_info(frame: &mut Frame, area: Rect, app: &App) {
 
     let text = ratatui::text::Text::from(vec![
         Line::from(format!(
-            "QE:  {}",
-            app.run_info.qe_version.as_deref().unwrap_or("Unknown")
+            "VER: {}",
+            app.run_info.version.as_deref().unwrap_or("Unknown")
         )),
         Line::from(format!(
             "EX:  {}",
@@ -120,6 +120,7 @@ fn render_summary(frame: &mut Frame, area: Rect, metrics: &Metrics) {
     match metrics {
         Metrics::Pw(pw) => crate::pw::ui::render_scf_summary(frame, area, pw),
         Metrics::Ph(ph) => crate::ph::ui::render_phonon_summary(frame, area, ph),
+        Metrics::Wannier90(wannier90) => crate::wannier90::ui::render_summary(frame, area, wannier90),
     }
 }
 
@@ -141,6 +142,14 @@ fn render_header_right(frame: &mut Frame, area: Rect, metrics: &Metrics) {
                 area,
             );
         }
+        Metrics::Wannier90(_) => {
+            frame.render_widget(
+                Block::new()
+                    .borders(Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
+                    .title(Line::from(" Header Right ").centered()),
+                area,
+            );
+        }
     }
 }
 
@@ -150,6 +159,9 @@ fn render_main_1(frame: &mut Frame, area: Rect, app: &App) {
         Metrics::Ph(ph) => {
             crate::ph::ui::render_representation_iterations_chart(frame, area, ph, 0)
         }
+        Metrics::Wannier90(wannier90) => {
+            crate::wannier90::ui::render_subspace_disentanglement_chart(frame, area, wannier90)
+        }
     }
 }
 
@@ -157,6 +169,7 @@ fn render_main_2(frame: &mut Frame, area: Rect, metrics: &Metrics) {
     match metrics {
         Metrics::Pw(pw) => crate::pw::ui::render_scf_accuracy_chart(frame, area, pw),
         Metrics::Ph(ph) => crate::ph::ui::render_scf_accuracy_chart(frame, area, ph),
+        Metrics::Wannier90(wannier90) => crate::wannier90::ui::render_spread_chart(frame, area, wannier90),
     }
 }
 
@@ -180,7 +193,7 @@ fn render_latest_output_lines(frame: &mut Frame, area: Rect, app: &App) {
     let block = Block::bordered().title(Line::from(" Latest Output ").bold().centered());
 
     let mut output_lines: Vec<Line> = app
-        .qe_output
+        .output_file
         .lines()
         .rev()
         .take(n_lines)
@@ -233,6 +246,13 @@ pub fn render_convergence_chart(
         x_min = 0.0;
         x_max = 10.0;
     }
+    // Extend bounds to always include the threshold line
+    if let Some(thr) = threshold {
+        let y_thr = thr.max(1e-22).log10();
+        y_min = y_min.min(y_thr);
+        y_max = y_max.max(y_thr);
+    }
+
     if !y_min.is_finite() || y_min == y_max {
         y_min = -16.0;
         y_max = -6.0;
@@ -269,15 +289,15 @@ pub fn render_convergence_chart(
     // Add data points
     let n = all_points.len();
     for (i, points) in all_points.iter().enumerate() {
-        let name = format!("-{}", n - i);
         let color_idx = i % colors.len();
-        let dataset = Dataset::default()
-            .name(name)
+        let mut dataset = Dataset::default()
             .graph_type(GraphType::Scatter)
             .style(Style::default().fg(colors[color_idx]))
             .data(points)
             .marker(symbols::Marker::Dot);
-
+        if n > 1 {
+            dataset = dataset.name(format!("-{}", n - i));
+        }
         datasets.push(dataset);
     }
 

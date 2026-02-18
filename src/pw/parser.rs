@@ -42,7 +42,7 @@ pub fn parse_run_info(qe_output: &str) -> RunInfo {
             // version
             if let Some(pos) = line.find("v.") {
                 let after_v = &line[(pos + 2)..];
-                run_info.qe_version = after_v.split_whitespace().next().map(|s| s.to_string());
+                run_info.version = after_v.split_whitespace().next().map(|s| s.to_string());
             }
 
             // start time

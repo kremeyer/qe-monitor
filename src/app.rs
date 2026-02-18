@@ -7,11 +7,11 @@ use std::{
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
-use crate::{CalcType, ph, pw, ui};
+use crate::{CalcType, ph, pw, ui, wannier90};
 
 #[derive(Debug, Default)]
 pub struct RunInfo {
-    pub qe_version: Option<String>,
+    pub version: Option<String>,
     pub executable: Option<String>,
     pub start_time: Option<String>,
     pub mpi_ranks: Option<String>,
@@ -22,6 +22,7 @@ pub struct RunInfo {
 pub enum Metrics {
     Pw(pw::PwMetrics),
     Ph(ph::PhMetrics),
+    Wannier90(wannier90::WannierMetrics),
 }
 
 impl Default for Metrics {
@@ -42,7 +43,7 @@ pub struct App {
     pub run_info: RunInfo,
     pub metrics: Metrics,
 
-    pub qe_output: String,
+    pub output_file: String,
     pub last_modified: Option<SystemTime>,
     last_size: u64,
 }
@@ -59,14 +60,15 @@ impl App {
             metrics: match calc_type {
                 CalcType::Pw => Metrics::Pw(pw::PwMetrics::default()),
                 CalcType::Ph => Metrics::Ph(ph::PhMetrics::default()),
+                CalcType::Wannier90 => Metrics::Wannier90(wannier90::WannierMetrics::default()),
             },
-            qe_output: String::new(),
+            output_file: String::new(),
             last_modified: None,
             last_size: 0,
         };
 
         // initial read + parse
-        app.qe_output = std::fs::read_to_string(&app.filename).unwrap_or_default();
+        app.output_file = std::fs::read_to_string(&app.filename).unwrap_or_default();
         app.parse_content();
 
         // store metadata snapshot
@@ -140,7 +142,7 @@ impl App {
             return Ok(()); // no changes
         }
 
-        self.qe_output = std::fs::read_to_string(&self.filename).unwrap_or_default();
+        self.output_file = std::fs::read_to_string(&self.filename).unwrap_or_default();
         self.parse_content();
 
         self.last_modified = modified;
@@ -151,12 +153,16 @@ impl App {
     fn parse_content(&mut self) {
         match self.calc_type {
             CalcType::Pw => {
-                self.run_info = pw::parse_run_info(&self.qe_output);
-                self.metrics = Metrics::Pw(pw::parse_metrics(&self.qe_output));
+                self.run_info = pw::parse_run_info(&self.output_file);
+                self.metrics = Metrics::Pw(pw::parse_metrics(&self.output_file));
             }
             CalcType::Ph => {
-                self.run_info = ph::parse_run_info(&self.qe_output);
-                self.metrics = Metrics::Ph(ph::parse_metrics(&self.qe_output));
+                self.run_info = ph::parse_run_info(&self.output_file);
+                self.metrics = Metrics::Ph(ph::parse_metrics(&self.output_file));
+            }
+            CalcType::Wannier90 => {
+                self.run_info = wannier90::parse_run_info(&self.output_file);
+                self.metrics = Metrics::Wannier90(wannier90::parse_metrics(&self.output_file));
             }
         }
     }
