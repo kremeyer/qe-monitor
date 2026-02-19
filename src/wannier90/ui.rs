@@ -52,7 +52,7 @@ pub fn render_subspace_disentanglement_chart(frame: &mut Frame, area: Rect, wm: 
 pub fn render_spread_chart(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
     let points: Vec<(f64, f64)> = wm
         .spread_block
-        .delta_spread
+        .spread
         .iter()
         .enumerate()
         .map(|(i, &d)| (i as f64, d.abs().max(1e-30).log10()))
@@ -61,9 +61,9 @@ pub fn render_spread_chart(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
     crate::ui::render_convergence_chart(
         frame,
         area,
-        "Wannierisation ΔΩ",
+        "Wannierisation Spread",
         "iter",
-        "ΔΩ",
+        "Spread (Ang^2)",
         vec![points],
         None,
     );
