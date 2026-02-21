@@ -178,73 +178,30 @@ pub fn render_total_energy_chart(frame: &mut Frame, area: Rect, pm: &PwMetrics) 
     let e = &pm.total_energy;
 
     if e.len() < 2 {
-        let block = Block::bordered().title(Line::from(" log10(ΔE) ").bold().centered());
+        let block = Block::bordered().title(Line::from(" |ΔE| ").bold().centered());
         frame.render_widget(block, area);
         return;
     }
 
-    let block = Block::bordered().title(Line::from(" log10(ΔE) ").bold().centered());
-
-    // Plot last N points (keep the chart readable)
-    let n = 400usize.min(e.len());
-    let start = e.len() - n;
-    let slice = &e[start..];
-
-    // shift energies to positive, then log10
-    let e_min = slice.iter().copied().fold(f64::INFINITY, |mn, v| mn.min(v));
-    let eps = 1e-7_f64;
-
-    let points: Vec<(f64, f64)> = slice
-        .iter()
+    // Compute |E_i - E_{i-1}| for consecutive steps, then log10
+    let points: Vec<(f64, f64)> = e
+        .windows(2)
         .enumerate()
-        .map(|(i, &y)| {
-            let x = (start + i) as f64;
-            let y_log = ((y - e_min) + eps).log10();
-            (x, y_log)
+        .map(|(i, w)| {
+            let de = (w[1] - w[0]).abs().max(1e-30);
+            ((i + 1) as f64, de.log10())
         })
         .collect();
 
-    let x_min = start as f64;
-    let x_max = (e.len() - 1) as f64;
-
-    let (mut y_min, mut y_max) = points
-        .iter()
-        .fold((f64::INFINITY, f64::NEG_INFINITY), |(mn, mx), &(_, y)| {
-            (mn.min(y), mx.max(y))
-        });
-
-    let pad = ((y_max - y_min).abs() * 0.05).max(1e-6);
-    y_min -= pad;
-    y_max += pad;
-
-    let x_mid = (x_min + x_max) / 2.0;
-    let y_mid = (y_min + y_max) / 2.0;
-
-    let datasets = vec![
-        Dataset::default()
-            .graph_type(GraphType::Scatter)
-            .data(&points),
-    ];
-
-    let chart = Chart::new(datasets)
-        .block(block)
-        .x_axis(
-            Axis::default()
-                .title("step")
-                .bounds([x_min, x_max])
-                .labels([
-                    Line::from(format!("{:.0}", x_min)),
-                    Line::from(format!("{:.0}", x_mid)),
-                    Line::from(format!("{:.0}", x_max)),
-                ]),
-        )
-        .y_axis(Axis::default().title("Ry").bounds([y_min, y_max]).labels([
-            Line::from(format!("{:.6}", y_min)),
-            Line::from(format!("{:.6}", y_mid)),
-            Line::from(format!("{:.6}", y_max)),
-        ]));
-
-    frame.render_widget(chart, area);
+    crate::ui::render_convergence_chart(
+        frame,
+        area,
+        "|ΔE|",
+        "step",
+        "|ΔE| [Ry]",
+        vec![points],
+        None,
+    );
 }
 
 pub fn render_scf_accuracy_chart(frame: &mut Frame, area: Rect, pw: &PwMetrics) {
