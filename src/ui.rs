@@ -274,7 +274,7 @@ pub fn render_convergence_chart(
     let x_mid = (x_min + x_max) / 2.0;
     let y_mid = (y_min + y_max) / 2.0;
 
-    let colors = [Color::LightGreen, Color::LightYellow, Color::LightRed];
+    let colors = [Color::LightRed, Color::LightYellow, Color::LightGreen];
 
     // Prepare threshold line data
     let threshold_line: Option<Vec<(f64, f64)>> = threshold.map(|thr| {

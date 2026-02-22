@@ -1,6 +1,6 @@
 use core::f64;
 
-use ratatui::style::Stylize;
+use ratatui::style::{Color, Stylize};
 use ratatui::{
     Frame,
     layout::Rect,
@@ -175,33 +175,136 @@ pub fn render_total_energy_chart(frame: &mut Frame, area: Rect, pm: &PwMetrics) 
         return;
     }
 
-    let e = &pm.total_energy;
+    render_energy_delta_chart(frame, area, &pm.total_energy);
+}
 
-    if e.len() < 2 {
-        let block = Block::bordered().title(Line::from(" |ΔE| ").bold().centered());
+/// Dedicated chart for relaxation energy changes.
+/// Splits points into "energy went down" (green ▼) and "energy went up" (red ▲)
+/// so the direction is immediately visible.
+fn render_energy_delta_chart(frame: &mut Frame, area: Rect, energies: &[f64]) {
+    use core::f64;
+    use ratatui::style::Style;
+    use ratatui::symbols;
+
+    let title = " |ΔE| ";
+    let block = Block::bordered().title(Line::from(title).bold().centered());
+
+    if energies.len() < 2 {
         frame.render_widget(block, area);
         return;
     }
 
-    // Compute |E_i - E_{i-1}| for consecutive steps, then log10
-    let points: Vec<(f64, f64)> = e
-        .windows(2)
-        .enumerate()
-        .map(|(i, w)| {
-            let de = (w[1] - w[0]).abs().max(1e-30);
-            ((i + 1) as f64, de.log10())
-        })
-        .collect();
+    // Split into down (E decreased) and up (E increased) datasets
+    let mut down_pts: Vec<(f64, f64)> = Vec::new();
+    let mut up_pts: Vec<(f64, f64)> = Vec::new();
 
-    crate::ui::render_convergence_chart(
-        frame,
-        area,
-        "|ΔE|",
-        "step",
-        "|ΔE| [Ry]",
-        vec![points],
-        None,
-    );
+    for (i, w) in energies.windows(2).enumerate() {
+        let de = w[1] - w[0];
+        let abs_de = de.abs().max(1e-30);
+        let pt = ((i + 1) as f64, abs_de.log10());
+        if de <= 0.0 {
+            down_pts.push(pt);
+        } else {
+            up_pts.push(pt);
+        }
+    }
+
+    // Calculate bounds
+    let all_pts = down_pts.iter().chain(up_pts.iter());
+    let mut x_min = f64::INFINITY;
+    let mut x_max = f64::NEG_INFINITY;
+    let mut y_min = f64::INFINITY;
+    let mut y_max = f64::NEG_INFINITY;
+    for &(x, y) in all_pts {
+        x_min = x_min.min(x);
+        x_max = x_max.max(x);
+        y_min = y_min.min(y);
+        y_max = y_max.max(y);
+    }
+
+    if !x_min.is_finite() || x_min == x_max {
+        x_min = 0.0;
+        x_max = 10.0;
+    }
+    if !y_min.is_finite() || y_min == y_max {
+        y_min = -16.0;
+        y_max = -6.0;
+    } else {
+        let pad = ((y_max - y_min).abs() * 0.10).max(0.5);
+        y_min -= pad;
+        y_max += pad;
+    }
+
+    let x_mid = (x_min + x_max) / 2.0;
+    let y_mid = (y_min + y_max) / 2.0;
+
+    let mut datasets: Vec<Dataset> = Vec::new();
+
+    if !down_pts.is_empty() {
+        datasets.push(
+            Dataset::default()
+                .name("▼")
+                .graph_type(GraphType::Scatter)
+                .marker(symbols::Marker::Dot)
+                .style(Style::default().fg(Color::LightGreen))
+                .data(&down_pts),
+        );
+    }
+    if !up_pts.is_empty() {
+        datasets.push(
+            Dataset::default()
+                .name("▲")
+                .graph_type(GraphType::Scatter)
+                .marker(symbols::Marker::Dot)
+                .style(Style::default().fg(Color::LightRed))
+                .data(&up_pts),
+        );
+    }
+
+    let chart = Chart::new(datasets)
+        .block(block)
+        .x_axis(
+            Axis::default()
+                .title("step")
+                .bounds([x_min, x_max])
+                .labels([
+                    Line::from(format!("{:.0}", x_min)),
+                    Line::from(format!("{:.0}", x_mid)),
+                    Line::from(format!("{:.0}", x_max)),
+                ]),
+        )
+        .y_axis(
+            Axis::default()
+                .title("|ΔE| [Ry]")
+                .bounds([y_min, y_max])
+                .labels([
+                    Line::from(format!("{:.1e}", 10f64.powf(y_min))),
+                    Line::from(format!("{:.1e}", 10f64.powf(y_mid))),
+                    Line::from(format!("{:.1e}", 10f64.powf(y_max))),
+                ]),
+        );
+
+    frame.render_widget(chart, area);
+
+    // Post-process: replace dot markers with ▼/▲ based on color
+    let buf = frame.buffer_mut();
+    for y in area.y..area.y + area.height {
+        for x in area.x..area.x + area.width {
+            let cell = &buf[(x, y)];
+            let sym = cell.symbol().to_string();
+            if sym == "•" {
+                let fg = cell.fg;
+                let replacement = if fg == Color::LightGreen {
+                    "▼"
+                } else if fg == Color::LightRed {
+                    "▲"
+                } else {
+                    continue;
+                };
+                buf[(x, y)].set_symbol(replacement);
+            }
+        }
+    }
 }
 
 pub fn render_scf_accuracy_chart(frame: &mut Frame, area: Rect, pw: &PwMetrics) {
