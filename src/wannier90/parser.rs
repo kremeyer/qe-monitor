@@ -62,11 +62,46 @@ pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
     let mut wm = WannierMetrics::default();
     let mut in_disentanglement_block: bool = false;
     let mut in_wannierization_block: bool = false;
+    let mut in_wannierise_section: bool = false;
+    let mut in_disentangle_section: bool = false;
     wm.wannierize_conv_threshold = -1.0;
     let mut conv_buffer_value = 0.0;
 
     for raw in wannier90_output.lines() {
         let line = raw.trim_start();
+
+        // Track WANNIERISE / DISENTANGLE header sections to parse max iterations
+        if line.starts_with('*') && line.ends_with('*') {
+            if line.contains("WANNIERISE") {
+                in_wannierise_section = true;
+                in_disentangle_section = false;
+            } else if line.contains("DISENTANGLE") {
+                in_disentangle_section = true;
+                in_wannierise_section = false;
+            } else if in_wannierise_section || in_disentangle_section {
+                in_wannierise_section = false;
+                in_disentangle_section = false;
+            }
+        }
+
+        if (in_wannierise_section || in_disentangle_section)
+            && line.contains("Total number of iterations")
+        {
+            if let Some(pos) = line.rfind(':') {
+                if let Ok(n) = line[pos + 1..]
+                    .trim()
+                    .trim_end_matches('|')
+                    .trim()
+                    .parse::<u32>()
+                {
+                    if in_wannierise_section {
+                        wm.wannierize_max_iterations = Some(n);
+                    } else {
+                        wm.dis_max_iterations = Some(n);
+                    }
+                }
+            }
+        }
 
         if line.contains("Extraction of optimally-connected subspace") {
             in_disentanglement_block = true;

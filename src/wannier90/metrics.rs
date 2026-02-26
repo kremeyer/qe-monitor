@@ -18,6 +18,8 @@ pub struct WannierMetrics {
     pub disentanglement_converged: Option<bool>,
     pub disentanglement_conv_threshold: Option<f64>,
     pub wannierize_conv_threshold: f64,
+    pub wannierize_max_iterations: Option<u32>,
+    pub dis_max_iterations: Option<u32>,
     pub disentanglement_block: Option<DisentanglementBlock>,
     pub spread_block: SpreadBlock,
 }
