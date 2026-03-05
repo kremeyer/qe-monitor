@@ -343,7 +343,7 @@ pub fn render_scf_accuracy_chart(frame: &mut Frame, area: Rect, pw: &PwMetrics) 
         "iteration",
         "accuracy",
         all_points,
-        pw.conv_threshold,
+        pw.scf_conv_thr,
     );
 }
 

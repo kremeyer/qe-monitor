@@ -70,5 +70,12 @@ pub struct PwMetrics {
     pub pressure: Vec<f64>,
     pub scf_blocks: Vec<ScfBlock>,
     pub band_blocks: Vec<BandBlock>,
-    pub conv_threshold: Option<f64>,
+    pub scf_conv_thr: Option<f64>,
+    pub etot_conv_thr: Option<f64>,
+    pub forc_conv_thr: Option<f64>,
+    pub press_conv_thr: Option<f64>,
+    // per ion_dynamics step errors (one entry per completed step)
+    pub ion_dyn_etot_err: Vec<f64>,  // "Energy error" [Ry]
+    pub ion_dyn_forc_err: Vec<f64>,  // "Gradient error" [Ry/Bohr] — max force component
+    pub ion_dyn_press_err: Vec<f64>, // "Cell gradient error" [kbar]
 }

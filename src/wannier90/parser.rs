@@ -86,20 +86,17 @@ pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
 
         if (in_wannierise_section || in_disentangle_section)
             && line.contains("Total number of iterations")
+            && let Some(pos) = line.rfind(':')
+            && let Ok(n) = line[pos + 1..]
+                .trim()
+                .trim_end_matches('|')
+                .trim()
+                .parse::<u32>()
         {
-            if let Some(pos) = line.rfind(':') {
-                if let Ok(n) = line[pos + 1..]
-                    .trim()
-                    .trim_end_matches('|')
-                    .trim()
-                    .parse::<u32>()
-                {
-                    if in_wannierise_section {
-                        wm.wannierize_max_iterations = Some(n);
-                    } else {
-                        wm.dis_max_iterations = Some(n);
-                    }
-                }
+            if in_wannierise_section {
+                wm.wannierize_max_iterations = Some(n);
+            } else {
+                wm.dis_max_iterations = Some(n);
             }
         }
 

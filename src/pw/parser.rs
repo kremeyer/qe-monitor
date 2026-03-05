@@ -105,15 +105,63 @@ fn parse_metrics_scf(qe_output: &str) -> PwMetrics {
     for raw in qe_output.lines() {
         let line = raw.trim_start();
 
-        // parse convergence threshold from header
+        // parse convergence thresholds from header
         if line.contains("scf convergence threshold =")
             && let Some(pos) = line.find("scf convergence threshold =")
         {
             let after = line[(pos + "scf convergence threshold =".len())..].trim();
-            pm.conv_threshold = after
+            pm.scf_conv_thr = after
                 .split_whitespace()
                 .next()
                 .and_then(|s| s.parse::<f64>().ok());
+        }
+        if line.contains("force convergence thresh.")
+            && let Some(pos) = line.find("force convergence thresh.")
+        {
+            let after = line[pos..].trim();
+            // skip past the '=' sign
+            if let Some(eq) = after.find('=') {
+                pm.forc_conv_thr = after[(eq + 1)..]
+                    .split_whitespace()
+                    .next()
+                    .and_then(|s| s.parse::<f64>().ok());
+            }
+        }
+        if line.contains("energy convergence thresh.")
+            && let Some(pos) = line.find("energy convergence thresh.")
+        {
+            let after = line[pos..].trim();
+            if let Some(eq) = after.find('=') {
+                pm.etot_conv_thr = after[(eq + 1)..]
+                    .split_whitespace()
+                    .next()
+                    .and_then(|s| s.parse::<f64>().ok());
+            }
+        }
+        if line.contains("press convergence thresh.")
+            && let Some(pos) = line.find("press convergence thresh.")
+        {
+            let after = line[pos..].trim();
+            if let Some(eq) = after.find('=') {
+                pm.press_conv_thr = after[(eq + 1)..]
+                    .split_whitespace()
+                    .next()
+                    .and_then(|s| s.parse::<f64>().ok());
+            }
+        }
+
+        // ion_dynamics per-step errors
+        if let Some(v) = parse_ion_dyn_energy_error(line) {
+            pm.ion_dyn_etot_err.push(v);
+            continue;
+        }
+        if let Some(v) = parse_ion_dyn_gradient_error(line) {
+            pm.ion_dyn_forc_err.push(v);
+            continue;
+        }
+        if let Some(v) = parse_ion_dyn_cell_gradient_error(line) {
+            pm.ion_dyn_press_err.push(v);
+            continue;
         }
 
         // cpu time line: update open block if present
@@ -332,6 +380,28 @@ fn parse_scf_convergence_iterations(line: &str) -> Option<u32> {
 fn parse_total_cpu_secs(line: &str) -> Option<f64> {
     static RE: Lazy<Regex> = Lazy::new(|| {
         Regex::new(r"total cpu time spent up to now is\s*([0-9]+(?:\.[0-9]+)?)\s*secs").unwrap()
+    });
+    cap_f64(&RE, line, 1)
+}
+
+fn parse_ion_dyn_energy_error(line: &str) -> Option<f64> {
+    static RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"Energy error\s*=\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[EeDd][+-]?\d+)?)").unwrap()
+    });
+    cap_f64(&RE, line, 1)
+}
+
+fn parse_ion_dyn_gradient_error(line: &str) -> Option<f64> {
+    static RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"Gradient error\s*=\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[EeDd][+-]?\d+)?)").unwrap()
+    });
+    cap_f64(&RE, line, 1)
+}
+
+fn parse_ion_dyn_cell_gradient_error(line: &str) -> Option<f64> {
+    static RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"Cell gradient error\s*=\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[EeDd][+-]?\d+)?)")
+            .unwrap()
     });
     cap_f64(&RE, line, 1)
 }

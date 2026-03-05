@@ -128,13 +128,56 @@ fn render_summary(frame: &mut Frame, area: Rect, metrics: &Metrics) {
 
 fn render_header_right(frame: &mut Frame, area: Rect, metrics: &Metrics) {
     match metrics {
-        Metrics::Pw(_) => {
-            frame.render_widget(
-                Block::new()
-                    .borders(Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
-                    .title(Line::from(" Header Right ").centered()),
-                area,
-            );
+        Metrics::Pw(pw) => {
+            let block = Block::new()
+                .borders(Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
+                .title(Line::from(" Thresholds ").bold().centered());
+
+            let fmt = |v: Option<f64>| {
+                v.map(|x| format!("{:.2e}", x))
+                    .unwrap_or_else(|| "—".to_string())
+            };
+            let fmt_cur = |v: Option<f64>| v.map(|x| format!("{:.2e}", x)).unwrap_or_default();
+
+            let is_relax = pw.etot_conv_thr.is_some()
+                || pw.forc_conv_thr.is_some()
+                || pw.press_conv_thr.is_some();
+
+            let mut lines = vec![Line::from(format!(
+                "{:<12} {}",
+                "scf [Ry]:",
+                fmt(pw.scf_conv_thr)
+            ))];
+
+            if is_relax {
+                let cur_e = pw.ion_dyn_etot_err.last().copied();
+                let cur_f = pw.ion_dyn_forc_err.last().copied();
+                let cur_p = pw.ion_dyn_press_err.last().copied();
+
+                let converged = |cur: Option<f64>, thr: Option<f64>| -> Color {
+                    match (cur, thr) {
+                        (Some(c), Some(t)) if c < t => Color::LightGreen,
+                        (Some(_), Some(_)) => Color::LightRed,
+                        _ => Color::Reset,
+                    }
+                };
+
+                let row = |label: &str, thr: Option<f64>, cur: Option<f64>| -> Line {
+                    let color = converged(cur, thr);
+                    let thr_str = fmt(thr);
+                    let cur_str = fmt_cur(cur);
+                    Line::from(vec![
+                        ratatui::text::Span::raw(format!("{:<12} {:<10}", label, thr_str)),
+                        ratatui::text::Span::styled(cur_str, Style::default().fg(color)),
+                    ])
+                };
+
+                lines.push(row("E [Ry]:", pw.etot_conv_thr, cur_e));
+                lines.push(row("F [Ry/Bohr]:", pw.forc_conv_thr, cur_f));
+                lines.push(row("P [kbar]:", pw.press_conv_thr, cur_p));
+            }
+
+            frame.render_widget(ratatui::widgets::Paragraph::new(lines).block(block), area);
         }
         Metrics::Ph(_) => {
             frame.render_widget(
@@ -267,7 +310,7 @@ pub fn render_convergence_chart(
         y_min = -16.0;
         y_max = -6.0;
     } else {
-        let pad = ((y_max - y_min).abs() * 0.10).max(0.5);
+        let pad = ((y_max - y_min).abs() * 0.10).max(0.1);
         y_min -= pad;
         y_max += pad;
     }
