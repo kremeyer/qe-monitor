@@ -172,6 +172,7 @@ fn render_header_right(frame: &mut Frame, area: Rect, metrics: &Metrics) {
                     ])
                 };
 
+                lines.push(Line::from(format!("{:<12} {:<9} {}", "", "target", "current")));
                 lines.push(row("E [Ry]:", pw.etot_conv_thr, cur_e));
                 lines.push(row("F [Ry/Bohr]:", pw.forc_conv_thr, cur_f));
                 lines.push(row("P [kbar]:", pw.press_conv_thr, cur_p));
