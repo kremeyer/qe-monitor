@@ -2,7 +2,7 @@ use chrono::{DateTime, Local, Utc};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Style},
+    style::{Color, Style, Stylize},
     symbols,
     text::Line,
     widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph},
@@ -45,8 +45,8 @@ pub fn ui(frame: &mut Frame, app: &App) {
         ])
         .split(inner);
 
-    // row 1: 3 cols
-    let row1_cols = Layout::default()
+    // header row
+    let header = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Percentage(33),
@@ -55,42 +55,45 @@ pub fn ui(frame: &mut Frame, app: &App) {
         ])
         .split(rows[0]);
 
-    // row 2: 2 cols
-    let row2_cols = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([Constraint::Percentage(50), Constraint::Percentage(50)])
+    // main widgets
+    let main_widgets = Layout::default()
+        .direction(app.main_widget_orientation)
+        .constraints([
+            Constraint::Percentage(app.main_widget_split),
+            Constraint::Percentage(100 - app.main_widget_split),
+        ])
         .split(rows[1]);
 
-    // row 3: 2 cols
-    let row3_cols = Layout::default()
+    // footer row
+    let footer = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Percentage(70), Constraint::Percentage(30)])
         .split(rows[2]);
 
-    // render row1
-    render_run_info(frame, row1_cols[0], app);
-    render_summary(frame, row1_cols[1], &app.metrics);
-    render_row1_col3(frame, row1_cols[2], &app.metrics);
+    // render header
+    render_run_info(frame, header[0], app);
+    render_summary(frame, header[1], &app.metrics);
+    render_header_right(frame, header[2], &app.metrics);
 
-    // render row2
-    render_row2_col1(frame, row2_cols[0], app);
-    render_row2_col2(frame, row2_cols[1], &app.metrics);
+    // render main widgets
+    render_main_1(frame, main_widgets[0], app);
+    render_main_2(frame, main_widgets[1], &app.metrics);
 
-    // render row3
-    render_latest_output_lines(frame, row3_cols[0], app);
-    render_row3_col2(frame, row3_cols[1], &app.metrics);
+    // render footer
+    render_latest_output_lines(frame, footer[0], app);
+    render_footer_right(frame, footer[1], app);
 }
 
 fn render_run_info(frame: &mut Frame, area: Rect, app: &App) {
-    let title = Line::from(" Run Info ");
+    let title = Line::from(" Run Info ").bold();
     let block = Block::new()
         .borders(Borders::LEFT | Borders::TOP | Borders::BOTTOM)
         .title(title.centered());
 
     let text = ratatui::text::Text::from(vec![
         Line::from(format!(
-            "QE:  {}",
-            app.run_info.qe_version.as_deref().unwrap_or("Unknown")
+            "VER: {}",
+            app.run_info.version.as_deref().unwrap_or("Unknown")
         )),
         Line::from(format!(
             "EX:  {}",
@@ -117,70 +120,133 @@ fn render_summary(frame: &mut Frame, area: Rect, metrics: &Metrics) {
     match metrics {
         Metrics::Pw(pw) => crate::pw::ui::render_scf_summary(frame, area, pw),
         Metrics::Ph(ph) => crate::ph::ui::render_phonon_summary(frame, area, ph),
+        Metrics::Wannier90(wannier90) => {
+            crate::wannier90::ui::render_summary(frame, area, wannier90)
+        }
     }
 }
 
-fn render_row1_col3(frame: &mut Frame, area: Rect, metrics: &Metrics) {
+fn render_header_right(frame: &mut Frame, area: Rect, metrics: &Metrics) {
     match metrics {
-        Metrics::Pw(_) => {
-            frame.render_widget(
-                Block::new()
-                    .borders(Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
-                    .title(Line::from(" Row1 Col3 ").centered()),
-                area,
-            );
+        Metrics::Pw(pw) => {
+            let block = Block::new()
+                .borders(Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
+                .title(Line::from(" Thresholds ").bold().centered());
+
+            let fmt = |v: Option<f64>| {
+                v.map(|x| format!("{:.2e}", x))
+                    .unwrap_or_else(|| "—".to_string())
+            };
+            let fmt_cur = |v: Option<f64>| v.map(|x| format!("{:.2e}", x)).unwrap_or_default();
+
+            let is_relax = pw.etot_conv_thr.is_some()
+                || pw.forc_conv_thr.is_some()
+                || pw.press_conv_thr.is_some();
+
+            let mut lines = vec![Line::from(format!(
+                "{:<12} {}",
+                "scf [Ry]:",
+                fmt(pw.scf_conv_thr)
+            ))];
+
+            if is_relax {
+                let cur_e = pw.ion_dyn_etot_err.last().copied();
+                let cur_f = pw.ion_dyn_forc_err.last().copied();
+                let cur_p = pw.ion_dyn_press_err.last().copied();
+
+                let converged = |cur: Option<f64>, thr: Option<f64>| -> Color {
+                    match (cur, thr) {
+                        (Some(c), Some(t)) if c < t => Color::LightGreen,
+                        (Some(_), Some(_)) => Color::LightRed,
+                        _ => Color::Reset,
+                    }
+                };
+
+                let row = |label: &str, thr: Option<f64>, cur: Option<f64>| -> Line {
+                    let color = converged(cur, thr);
+                    let thr_str = fmt(thr);
+                    let cur_str = fmt_cur(cur);
+                    Line::from(vec![
+                        ratatui::text::Span::raw(format!("{:<12} {:<10}", label, thr_str)),
+                        ratatui::text::Span::styled(cur_str, Style::default().fg(color)),
+                    ])
+                };
+
+                lines.push(row("E [Ry]:", pw.etot_conv_thr, cur_e));
+                lines.push(row("F [Ry/Bohr]:", pw.forc_conv_thr, cur_f));
+                lines.push(row("P [kbar]:", pw.press_conv_thr, cur_p));
+            }
+
+            frame.render_widget(ratatui::widgets::Paragraph::new(lines).block(block), area);
         }
         Metrics::Ph(_) => {
             frame.render_widget(
                 Block::new()
                     .borders(Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
-                    .title(Line::from(" Row1 Col3 ").centered()),
+                    .title(Line::from(" Header Right ").centered()),
+                area,
+            );
+        }
+        Metrics::Wannier90(_) => {
+            frame.render_widget(
+                Block::new()
+                    .borders(Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
+                    .title(Line::from(" Header Right ").centered()),
                 area,
             );
         }
     }
 }
 
-fn render_row2_col1(frame: &mut Frame, area: Rect, app: &App) {
+fn render_main_1(frame: &mut Frame, area: Rect, app: &App) {
     match &app.metrics {
         Metrics::Pw(pw) => crate::pw::ui::render_total_energy_chart(frame, area, pw),
         Metrics::Ph(ph) => {
             crate::ph::ui::render_representation_iterations_chart(frame, area, ph, 0)
         }
+        Metrics::Wannier90(wannier90) => {
+            crate::wannier90::ui::render_subspace_disentanglement_chart(frame, area, wannier90)
+        }
     }
 }
 
-fn render_row2_col2(frame: &mut Frame, area: Rect, metrics: &Metrics) {
+fn render_main_2(frame: &mut Frame, area: Rect, metrics: &Metrics) {
     match metrics {
         Metrics::Pw(pw) => crate::pw::ui::render_scf_accuracy_chart(frame, area, pw),
         Metrics::Ph(ph) => crate::ph::ui::render_scf_accuracy_chart(frame, area, ph),
+        Metrics::Wannier90(wannier90) => {
+            crate::wannier90::ui::render_spread_chart(frame, area, wannier90)
+        }
     }
 }
 
-fn render_row3_col2(frame: &mut Frame, area: Rect, metrics: &Metrics) {
-    match metrics {
-        Metrics::Pw(_) => {
-            frame.render_widget(
-                Block::bordered().title(Line::from(" Row3 Col2 ").centered()),
-                area,
-            );
-        }
-        Metrics::Ph(_) => {
-            frame.render_widget(
-                Block::bordered().title(Line::from(" Row3 Col2 ").centered()),
-                area,
-            );
-        }
-    }
+fn render_footer_right(frame: &mut Frame, area: Rect, app: &App) {
+    let shortcuts = if app.main_widget_orientation == Direction::Horizontal {
+        "adj. layout: A←→D Space "
+    } else {
+        "adj. layout: W↑↓S Space "
+    };
+    frame.render_widget(
+        Block::bordered()
+            .title(Line::from(" Footer Right ").centered())
+            .title_bottom(Line::from(shortcuts).right_aligned()),
+        area,
+    );
 }
 
 fn render_latest_output_lines(frame: &mut Frame, area: Rect, app: &App) {
     let n_lines = area.height as usize - 2; // leave space for borders
 
-    let block = Block::bordered().title(Line::from(" Latest Output ").centered());
+    let parse_time_str = app
+        .last_parse_duration
+        .map(|d| format!(" parsed in {:.1}ms ", d.as_secs_f64() * 1000.0))
+        .unwrap_or_default();
+    let block = Block::bordered()
+        .title(Line::from(parse_time_str).left_aligned())
+        .title(Line::from(" Latest Output ").bold().centered());
 
     let mut output_lines: Vec<Line> = app
-        .qe_output
+        .output_file
         .lines()
         .rev()
         .take(n_lines)
@@ -207,7 +273,7 @@ pub fn render_convergence_chart(
 ) {
     use core::f64;
 
-    let block = Block::bordered().title(Line::from(format!(" {} ", title)).centered());
+    let block = Block::bordered().title(Line::from(format!(" {} ", title)).bold().centered());
 
     if all_points.is_empty() || all_points.iter().all(|pts| pts.is_empty()) {
         frame.render_widget(block, area);
@@ -233,11 +299,18 @@ pub fn render_convergence_chart(
         x_min = 0.0;
         x_max = 10.0;
     }
+    // Extend bounds to always include the threshold line
+    if let Some(thr) = threshold {
+        let y_thr = thr.max(1e-22).log10();
+        y_min = y_min.min(y_thr);
+        y_max = y_max.max(y_thr);
+    }
+
     if !y_min.is_finite() || y_min == y_max {
         y_min = -16.0;
         y_max = -6.0;
     } else {
-        let pad = ((y_max - y_min).abs() * 0.10).max(0.5);
+        let pad = ((y_max - y_min).abs() * 0.10).max(0.1);
         y_min -= pad;
         y_max += pad;
     }
@@ -246,46 +319,39 @@ pub fn render_convergence_chart(
 
     let colors = [Color::LightRed, Color::LightYellow, Color::LightGreen];
 
-    // Prepare threshold line data if needed
-    let threshold_line: Option<Vec<(f64, f64)>> = threshold.and_then(|thr| {
-        let y_threshold = thr.max(1e-30).log10();
-        // Only create line if threshold is within visible range
-        if y_threshold >= y_min && y_threshold <= y_max {
-            Some(vec![(x_min, y_threshold), (x_max, y_threshold)])
-        } else {
-            None
-        }
+    // Prepare threshold line data
+    let threshold_line: Option<Vec<(f64, f64)>> = threshold.map(|thr| {
+        let y_threshold = thr.max(1e-22).log10();
+        vec![(x_min, y_threshold), (x_max, y_threshold)]
     });
 
-    // Build datasets with ratatui type
     let mut datasets: Vec<Dataset> = Vec::new();
-    for (i, points) in all_points.iter().rev().enumerate() {
-        let name = format!("-{}", i + 1);
-        let color_idx = i % colors.len();
-        let mut dataset = Dataset::default()
-            .name(name)
-            .graph_type(GraphType::Scatter)
-            .style(Style::default().fg(colors[color_idx]))
-            .data(points)
-            .marker(symbols::Marker::Dot);
 
-        // Use Braille marker only for the latest (first dataset = -1)
-        if i == 0 {
-            dataset = dataset.marker(symbols::Marker::Dot);
-        }
-
-        datasets.push(dataset);
-    }
-
-    // Add threshold line dataset if available
+    // Add threshold line dataset
     if let Some(ref line) = threshold_line {
         datasets.push(
             Dataset::default()
                 .name("thr")
                 .graph_type(GraphType::Line)
+                .marker(symbols::Marker::Braille)
                 .style(Style::default().fg(Color::DarkGray))
                 .data(line),
         );
+    }
+
+    // Add data points
+    let n = all_points.len();
+    for (i, points) in all_points.iter().enumerate() {
+        let color_idx = i % colors.len();
+        let mut dataset = Dataset::default()
+            .graph_type(GraphType::Scatter)
+            .style(Style::default().fg(colors[color_idx]))
+            .data(points)
+            .marker(symbols::Marker::Dot);
+        if n > 1 {
+            dataset = dataset.name(format!("-{}", n - i));
+        }
+        datasets.push(dataset);
     }
 
     let chart = Chart::new(datasets)
@@ -316,10 +382,10 @@ pub fn render_convergence_chart(
 
 pub fn stats_line(label: &str, xs: &[f64], decimals: usize) -> String {
     if xs.is_empty() {
-        return format!("{label}: —");
+        return format!("{label} —");
     }
     let (mu, sigma) = mean_std(xs);
-    format!("{label}: {mu:.d$} ± {sigma:.d$}", d = decimals)
+    format!("{label} {mu:.d$} ± {sigma:.d$}", d = decimals)
 }
 
 pub fn mean_std(xs: &[f64]) -> (f64, f64) {

@@ -1,5 +1,6 @@
 use std::{
     io,
+    io::{Read, Seek, SeekFrom},
     path::PathBuf,
     time::{Duration, Instant, SystemTime},
 };
@@ -7,11 +8,11 @@ use std::{
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
-use crate::{CalcType, ph, pw, ui};
+use crate::{CalcType, ph, pw, ui, wannier90};
 
 #[derive(Debug, Default)]
 pub struct RunInfo {
-    pub qe_version: Option<String>,
+    pub version: Option<String>,
     pub executable: Option<String>,
     pub start_time: Option<String>,
     pub mpi_ranks: Option<String>,
@@ -22,6 +23,7 @@ pub struct RunInfo {
 pub enum Metrics {
     Pw(pw::PwMetrics),
     Ph(ph::PhMetrics),
+    Wannier90(wannier90::WannierMetrics),
 }
 
 impl Default for Metrics {
@@ -33,36 +35,46 @@ impl Default for Metrics {
 #[derive(Debug)]
 pub struct App {
     exit: bool,
+    pub main_widget_split: u16, // percentage for main widget split
+    pub main_widget_orientation: ratatui::layout::Direction, // horizontal or vertical
+
     pub filename: PathBuf,
     pub calc_type: CalcType,
 
     pub run_info: RunInfo,
     pub metrics: Metrics,
 
-    pub qe_output: String,
+    pub output_file: String,
     pub last_modified: Option<SystemTime>,
     last_size: u64,
+    pub last_parse_duration: Option<Duration>,
 }
 
 impl App {
     pub fn new(filename: PathBuf, calc_type: CalcType) -> Self {
         let mut app = Self {
             exit: false,
+            main_widget_split: 50,
+            main_widget_orientation: ratatui::layout::Direction::Horizontal,
             filename,
             calc_type,
             run_info: RunInfo::default(),
             metrics: match calc_type {
                 CalcType::Pw => Metrics::Pw(pw::PwMetrics::default()),
                 CalcType::Ph => Metrics::Ph(ph::PhMetrics::default()),
+                CalcType::Wannier90 => Metrics::Wannier90(wannier90::WannierMetrics::default()),
             },
-            qe_output: String::new(),
+            output_file: String::new(),
             last_modified: None,
             last_size: 0,
+            last_parse_duration: None,
         };
 
         // initial read + parse
-        app.qe_output = std::fs::read_to_string(&app.filename).unwrap_or_default();
+        app.output_file = std::fs::read_to_string(&app.filename).unwrap_or_default();
+        let t0 = Instant::now();
         app.parse_content();
+        app.last_parse_duration = Some(t0.elapsed());
 
         // store metadata snapshot
         if let Ok(md) = std::fs::metadata(&app.filename) {
@@ -101,6 +113,29 @@ impl App {
         if let KeyCode::Char('q') = key_event.code {
             self.exit = true;
         }
+
+        if let KeyCode::Char(' ') = key_event.code {
+            if self.main_widget_orientation == ratatui::layout::Direction::Horizontal {
+                self.main_widget_orientation = ratatui::layout::Direction::Vertical
+            } else {
+                self.main_widget_orientation = ratatui::layout::Direction::Horizontal
+            }
+        }
+        if self.main_widget_orientation == ratatui::layout::Direction::Horizontal {
+            if let KeyCode::Char('a') | KeyCode::Left = key_event.code {
+                self.main_widget_split = self.main_widget_split.saturating_sub(15).max(20);
+            }
+            if let KeyCode::Char('d') | KeyCode::Right = key_event.code {
+                self.main_widget_split = (self.main_widget_split + 15).min(80);
+            }
+        } else {
+            if let KeyCode::Char('w') | KeyCode::Up = key_event.code {
+                self.main_widget_split = self.main_widget_split.saturating_sub(15).max(20);
+            }
+            if let KeyCode::Char('s') | KeyCode::Down = key_event.code {
+                self.main_widget_split = (self.main_widget_split + 15).min(80);
+            }
+        }
     }
 
     fn refresh(&mut self) -> io::Result<()> {
@@ -112,8 +147,21 @@ impl App {
             return Ok(()); // no changes
         }
 
-        self.qe_output = std::fs::read_to_string(&self.filename).unwrap_or_default();
+        // Only read the new bytes appended since the last check.
+        // If the file shrank (e.g. replaced), fall back to a full re-read.
+        if size >= self.last_size && self.last_size > 0 {
+            let mut f = std::fs::File::open(&self.filename)?;
+            f.seek(SeekFrom::Start(self.last_size))?;
+            let mut new_content = String::new();
+            f.read_to_string(&mut new_content)?;
+            self.output_file.push_str(&new_content);
+        } else {
+            self.output_file = std::fs::read_to_string(&self.filename).unwrap_or_default();
+        }
+
+        let t0 = Instant::now();
         self.parse_content();
+        self.last_parse_duration = Some(t0.elapsed());
 
         self.last_modified = modified;
         self.last_size = size;
@@ -123,12 +171,16 @@ impl App {
     fn parse_content(&mut self) {
         match self.calc_type {
             CalcType::Pw => {
-                self.run_info = pw::parse_run_info(&self.qe_output);
-                self.metrics = Metrics::Pw(pw::parse_metrics(&self.qe_output));
+                self.run_info = pw::parse_run_info(&self.output_file);
+                self.metrics = Metrics::Pw(pw::parse_metrics(&self.output_file));
             }
             CalcType::Ph => {
-                self.run_info = ph::parse_run_info(&self.qe_output);
-                self.metrics = Metrics::Ph(ph::parse_metrics(&self.qe_output));
+                self.run_info = ph::parse_run_info(&self.output_file);
+                self.metrics = Metrics::Ph(ph::parse_metrics(&self.output_file));
+            }
+            CalcType::Wannier90 => {
+                self.run_info = wannier90::parse_run_info(&self.output_file);
+                self.metrics = Metrics::Wannier90(wannier90::parse_metrics(&self.output_file));
             }
         }
     }

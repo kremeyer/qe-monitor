@@ -4,6 +4,7 @@ mod app;
 mod ph;
 mod pw;
 mod ui;
+mod wannier90;
 
 use app::App;
 use crossterm::{
@@ -13,11 +14,13 @@ use crossterm::{
 use ratatui::{Terminal, backend::CrosstermBackend};
 
 const QE_MARKER: &str = "This program is part of the open-source Quantum ESPRESSO suite";
+const WANN_MARKER: &str = "Welcome to the Maximally-Localized";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CalcType {
     Pw,
     Ph,
+    Wannier90,
 }
 
 fn main() -> io::Result<()> {
@@ -42,9 +45,9 @@ fn main() -> io::Result<()> {
 
     // check that we have a QE output file
     let qe_output = std::fs::read_to_string(&logfile)?;
-    if !qe_output.contains(QE_MARKER) {
+    if !qe_output.contains(QE_MARKER) && !qe_output.contains(WANN_MARKER) {
         eprintln!(
-            "Error: {} does not appear to be a QE output file",
+            "Error: {} does not appear to be a QE/Wannier90 output file",
             logfile.display()
         );
         std::process::exit(1);
@@ -52,7 +55,7 @@ fn main() -> io::Result<()> {
 
     // detect calculation type
     let calc_type = detect_calc_type(&qe_output).unwrap_or_else(|| {
-        eprintln!("Error: could not determine calculation type (pw.x or ph.x)");
+        eprintln!("Error: could not determine calculation type (pw.x or ph.x or wannier90.x)");
         std::process::exit(1);
     });
 
@@ -80,6 +83,10 @@ fn detect_calc_type(content: &str) -> Option<CalcType> {
         Some(CalcType::Pw)
     } else if content.contains("Program PHONON v.") {
         Some(CalcType::Ph)
+    } else if content.contains("WANNIER90")
+        && content.contains("Welcome to the Maximally-Localized")
+    {
+        Some(CalcType::Wannier90)
     } else {
         None
     }

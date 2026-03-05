@@ -81,6 +81,17 @@ pub fn render_phonon_summary(frame: &mut Frame, area: Rect, pm: &PhMetrics) {
     // Convert time to the right unit
     let sec_per_rep_scaled: Vec<f64> = sec_per_rep.iter().map(|&v| v / divisor).collect();
 
+    // Calculate std deviation for time per representation
+    let (_, std_per_rep) = if !sec_per_rep_scaled.is_empty() {
+        crate::ui::mean_std(&sec_per_rep_scaled)
+    } else {
+        (0.0, 0.0)
+    };
+
+    // Propagate error to time left estimate
+    let reps_left = (total_reps.saturating_sub(pm.num_representations_completed)) as f64;
+    let est_time_left_error = std_per_rep * reps_left;
+
     let mut lines: Vec<Line> = Vec::new();
     lines.push(Line::from(format!(
         "NQ:            {}/{}",
@@ -91,18 +102,18 @@ pub fn render_phonon_summary(frame: &mut Frame, area: Rect, pm: &PhMetrics) {
         pm.num_representations_completed, total_reps
     )));
     lines.push(Line::from(crate::ui::stats_line(
-        "iter/R       ",
+        "iter/R:       ",
         &iters,
         1,
     )));
     lines.push(Line::from(crate::ui::stats_line(
-        &format!("time/R [{}]   ", time_unit),
+        &format!("time/R [{}]:   ", time_unit),
         &sec_per_rep_scaled,
         2,
     )));
     lines.push(Line::from(format!(
-        "time left [{}]: {:.2}",
-        time_unit, est_time_left
+        "time left [{}]: {:.2} ± {:.2}",
+        time_unit, est_time_left, est_time_left_error
     )));
 
     frame.render_widget(Paragraph::new(lines).block(block), area);
@@ -121,7 +132,8 @@ pub fn render_representation_iterations_chart(
         .collect();
 
     if n_iters.is_empty() {
-        let block = Block::bordered().title(Line::from(" Representation Iterations ").centered());
+        let block =
+            Block::bordered().title(Line::from(" Representation Iterations ").bold().centered());
         frame.render_widget(block, area);
         return;
     }
@@ -154,7 +166,7 @@ pub fn render_representation_iterations_chart(
         .collect();
 
     let bar_chart = BarChart::default()
-        .block(Block::bordered().title(Line::from(" Representation Iterations ").centered()))
+        .block(Block::bordered().title(Line::from(" Representation Iterations ").bold().centered()))
         .data(BarGroup::default().bars(&bars))
         .bar_gap(0)
         .bar_width(1)
@@ -165,7 +177,7 @@ pub fn render_representation_iterations_chart(
 pub fn render_scf_accuracy_chart(frame: &mut Frame, area: Rect, ph: &PhMetrics) {
     let representation_blocks = &ph.representation_blocks;
     if representation_blocks.is_empty() {
-        let block = Block::bordered().title(Line::from(" SCF Accuracy ").centered());
+        let block = Block::bordered().title(Line::from(" SCF Accuracy ").bold().centered());
         frame.render_widget(block, area);
         return;
     }
