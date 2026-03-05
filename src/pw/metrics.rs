@@ -76,6 +76,6 @@ pub struct PwMetrics {
     pub press_conv_thr: Option<f64>,
     // per ion_dynamics step errors (one entry per completed step)
     pub ion_dyn_etot_err: Vec<f64>,  // "Energy error" [Ry]
-    pub ion_dyn_forc_err: Vec<f64>,  // "Gradient error" [Ry/Bohr] — max force component
+    pub ion_dyn_forc_err: Vec<f64>,  // "Gradient error" [Ry/Bohr] - max force component
     pub ion_dyn_press_err: Vec<f64>, // "Cell gradient error" [kbar]
 }

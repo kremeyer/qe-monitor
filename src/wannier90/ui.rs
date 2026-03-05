@@ -2,6 +2,7 @@ use ratatui::style::Stylize;
 use ratatui::widgets::Paragraph;
 use ratatui::{Frame, layout::Rect, text::Line, widgets::Block};
 
+use crate::ui::{ConvergenceChart, Renderable};
 use crate::wannier90::WannierMetrics;
 
 pub fn render_summary(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
@@ -118,8 +119,28 @@ pub fn render_summary(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-pub fn render_subspace_disentanglement_chart(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
+pub fn render_spread_chart(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
     let points: Vec<(f64, f64)> = wm
+        .spread_block
+        .spread
+        .iter()
+        .enumerate()
+        .map(|(i, &d)| (i as f64, d.abs().max(1e-30).log10()))
+        .collect();
+
+    ConvergenceChart::new(
+        "Wannierisation Spread",
+        "iter",
+        "Spread (Ang^2)",
+        vec![points],
+        None,
+    )
+    .render(frame, area);
+}
+
+/// Build the left-panel tabs for wannier90 calculations.
+pub fn build_left_tabs(wm: &WannierMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
+    let points = wm
         .disentanglement_block
         .as_ref()
         .map(|db| {
@@ -131,33 +152,14 @@ pub fn render_subspace_disentanglement_chart(frame: &mut Frame, area: Rect, wm: 
         })
         .unwrap_or_default();
 
-    crate::ui::render_convergence_chart(
-        frame,
-        area,
-        "Disentanglement ΔΩ",
-        "iter",
-        "ΔΩ",
-        vec![points],
-        wm.disentanglement_conv_threshold,
-    );
-}
-
-pub fn render_spread_chart(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
-    let points: Vec<(f64, f64)> = wm
-        .spread_block
-        .spread
-        .iter()
-        .enumerate()
-        .map(|(i, &d)| (i as f64, d.abs().max(1e-30).log10()))
-        .collect();
-
-    crate::ui::render_convergence_chart(
-        frame,
-        area,
-        "Wannierisation Spread",
-        "iter",
-        "Spread (Ang^2)",
-        vec![points],
-        None,
-    );
+    vec![(
+        "ΔΩ Disentangle",
+        Box::new(ConvergenceChart::new(
+            "Disentanglement ΔΩ",
+            "iter",
+            "ΔΩ",
+            vec![points],
+            wm.disentanglement_conv_threshold,
+        )),
+    )]
 }

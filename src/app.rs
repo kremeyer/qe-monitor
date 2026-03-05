@@ -8,7 +8,7 @@ use std::{
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
-use crate::{CalcType, ph, pw, ui, wannier90};
+use crate::{CalcType, ph, pw, ui, ui::TabGroup, wannier90};
 
 #[derive(Debug, Default)]
 pub struct RunInfo {
@@ -44,6 +44,8 @@ pub struct App {
     pub run_info: RunInfo,
     pub metrics: Metrics,
 
+    pub left_charts: TabGroup,
+
     pub output_file: String,
     pub last_modified: Option<SystemTime>,
     last_size: u64,
@@ -64,6 +66,7 @@ impl App {
                 CalcType::Ph => Metrics::Ph(ph::PhMetrics::default()),
                 CalcType::Wannier90 => Metrics::Wannier90(wannier90::WannierMetrics::default()),
             },
+            left_charts: TabGroup::default(),
             output_file: String::new(),
             last_modified: None,
             last_size: 0,
@@ -112,6 +115,11 @@ impl App {
     fn handle_key_event(&mut self, key_event: KeyEvent) {
         if let KeyCode::Char('q') = key_event.code {
             self.exit = true;
+        }
+
+        // Let TabGroup handle number keys first
+        if self.left_charts.handle_key(key_event.code) {
+            return;
         }
 
         if let KeyCode::Char(' ') = key_event.code {
@@ -181,6 +189,21 @@ impl App {
             CalcType::Wannier90 => {
                 self.run_info = wannier90::parse_run_info(&self.output_file);
                 self.metrics = Metrics::Wannier90(wannier90::parse_metrics(&self.output_file));
+            }
+        }
+        self.build_left_charts();
+    }
+
+    fn build_left_charts(&mut self) {
+        match &self.metrics {
+            Metrics::Pw(pm) => {
+                self.left_charts.rebuild(pw::ui::build_left_tabs(pm));
+            }
+            Metrics::Ph(pm) => {
+                self.left_charts.rebuild(ph::ui::build_left_tabs(pm));
+            }
+            Metrics::Wannier90(wm) => {
+                self.left_charts.rebuild(wannier90::ui::build_left_tabs(wm));
             }
         }
     }

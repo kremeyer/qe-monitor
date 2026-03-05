@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use crate::ph::PhMetrics;
+use crate::ui::Renderable;
 
 pub fn render_phonon_summary(frame: &mut Frame, area: Rect, pm: &PhMetrics) {
     let block = Block::bordered().title(Line::from(" Phonon stats ").bold().centered());
@@ -119,61 +120,6 @@ pub fn render_phonon_summary(frame: &mut Frame, area: Rect, pm: &PhMetrics) {
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-pub fn render_representation_iterations_chart(
-    frame: &mut Frame,
-    area: Rect,
-    pm: &PhMetrics,
-    _scroll_offset: usize,
-) {
-    let n_iters: Vec<u32> = pm
-        .representation_blocks
-        .iter()
-        .filter_map(|b| b.iterations_to_converge())
-        .collect();
-
-    if n_iters.is_empty() {
-        let block =
-            Block::bordered().title(Line::from(" Representation Iterations ").bold().centered());
-        frame.render_widget(block, area);
-        return;
-    }
-
-    // Calculate how many bars fit in the available area (each bar takes 1 row)
-    let content_height = area.height.saturating_sub(2) as usize; // minus borders
-    let total_bars = n_iters.len();
-
-    // Show the last bars that fit in the viewport
-    let start = total_bars.saturating_sub(content_height);
-    let visible_iters = &n_iters[start..];
-
-    let n_dig_i = format!("{}", pm.num_representations_completed).len();
-    let n_dig_v = n_iters
-        .iter()
-        .map(|&v| format!("{}", v).len())
-        .max()
-        .unwrap_or(1);
-
-    let bars: Vec<Bar> = visible_iters
-        .iter()
-        .enumerate()
-        .map(|(i, &v)| {
-            let actual_index = start + i;
-            Bar::default()
-                .value(u64::from(v))
-                .label(Line::from(format!("{:n_dig_i$}", actual_index + 1)))
-                .text_value(format!("{:n_dig_v$}", v))
-        })
-        .collect();
-
-    let bar_chart = BarChart::default()
-        .block(Block::bordered().title(Line::from(" Representation Iterations ").bold().centered()))
-        .data(BarGroup::default().bars(&bars))
-        .bar_gap(0)
-        .bar_width(1)
-        .direction(ratatui::layout::Direction::Horizontal);
-    frame.render_widget(bar_chart, area);
-}
-
 pub fn render_scf_accuracy_chart(frame: &mut Frame, area: Rect, ph: &PhMetrics) {
     let representation_blocks = &ph.representation_blocks;
     if representation_blocks.is_empty() {
@@ -199,13 +145,85 @@ pub fn render_scf_accuracy_chart(frame: &mut Frame, area: Rect, ph: &PhMetrics) 
         all_points.push(pts)
     }
 
-    crate::ui::render_convergence_chart(
-        frame,
-        area,
+    crate::ui::ConvergenceChart::new(
         "SCF Accuracy",
         "iteration",
         "accuracy",
         all_points,
         ph.conv_threshold,
-    );
+    )
+    .render(frame, area);
+}
+
+/// Build the left-panel tabs for ph calculations.
+pub fn build_left_tabs(pm: &PhMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
+    vec![(
+        "Repr. Iters",
+        Box::new(RepresentationIterationsChart::from(pm)),
+    )]
+}
+
+struct RepresentationIterationsChart {
+    n_iters: Vec<u32>,
+    num_reps_completed: u32,
+}
+
+impl From<&PhMetrics> for RepresentationIterationsChart {
+    fn from(pm: &PhMetrics) -> Self {
+        Self {
+            n_iters: pm
+                .representation_blocks
+                .iter()
+                .filter_map(|b| b.iterations_to_converge())
+                .collect(),
+            num_reps_completed: pm.num_representations_completed,
+        }
+    }
+}
+
+impl Renderable for RepresentationIterationsChart {
+    fn render(&self, frame: &mut Frame, area: Rect) {
+        if self.n_iters.is_empty() {
+            let block = Block::bordered()
+                .title(Line::from(" Representation Iterations ").bold().centered());
+            frame.render_widget(block, area);
+            return;
+        }
+
+        let content_height = area.height.saturating_sub(2) as usize;
+        let total_bars = self.n_iters.len();
+        let start = total_bars.saturating_sub(content_height);
+        let visible_iters = &self.n_iters[start..];
+
+        let n_dig_i = format!("{}", self.num_reps_completed).len();
+        let n_dig_v = self
+            .n_iters
+            .iter()
+            .map(|&v| format!("{}", v).len())
+            .max()
+            .unwrap_or(1);
+
+        let bars: Vec<Bar> = visible_iters
+            .iter()
+            .enumerate()
+            .map(|(i, &v)| {
+                let actual_index = start + i;
+                Bar::default()
+                    .value(u64::from(v))
+                    .label(Line::from(format!("{:n_dig_i$}", actual_index + 1)))
+                    .text_value(format!("{:n_dig_v$}", v))
+            })
+            .collect();
+
+        let bar_chart = BarChart::default()
+            .block(
+                Block::bordered()
+                    .title(Line::from(" Representation Iterations ").bold().centered()),
+            )
+            .data(BarGroup::default().bars(&bars))
+            .bar_gap(0)
+            .bar_width(1)
+            .direction(ratatui::layout::Direction::Horizontal);
+        frame.render_widget(bar_chart, area);
+    }
 }

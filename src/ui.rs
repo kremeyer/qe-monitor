@@ -1,11 +1,12 @@
 use chrono::{DateTime, Local, Utc};
+use crossterm::event::KeyCode;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Style, Stylize},
     symbols,
     text::Line,
-    widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph},
+    widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph, Tabs},
 };
 
 use crate::app::{App, Metrics};
@@ -172,7 +173,10 @@ fn render_header_right(frame: &mut Frame, area: Rect, metrics: &Metrics) {
                     ])
                 };
 
-                lines.push(Line::from(format!("{:<12} {:<9} {}", "", "target", "current")));
+                lines.push(Line::from(format!(
+                    "{:<12} {:<9} {}",
+                    "", "target", "current"
+                )));
                 lines.push(row("E [Ry]:", pw.etot_conv_thr, cur_e));
                 lines.push(row("F [Ry/Bohr]:", pw.forc_conv_thr, cur_f));
                 lines.push(row("P [kbar]:", pw.press_conv_thr, cur_p));
@@ -200,15 +204,7 @@ fn render_header_right(frame: &mut Frame, area: Rect, metrics: &Metrics) {
 }
 
 fn render_main_1(frame: &mut Frame, area: Rect, app: &App) {
-    match &app.metrics {
-        Metrics::Pw(pw) => crate::pw::ui::render_total_energy_chart(frame, area, pw),
-        Metrics::Ph(ph) => {
-            crate::ph::ui::render_representation_iterations_chart(frame, area, ph, 0)
-        }
-        Metrics::Wannier90(wannier90) => {
-            crate::wannier90::ui::render_subspace_disentanglement_chart(frame, area, wannier90)
-        }
-    }
+    app.left_charts.render(frame, area);
 }
 
 fn render_main_2(frame: &mut Frame, area: Rect, metrics: &Metrics) {
@@ -263,122 +259,227 @@ fn render_latest_output_lines(frame: &mut Frame, area: Rect, app: &App) {
 /// with log-scale y-axis labels. Used for SCF accuracy tracking.
 ///
 /// If `threshold` is provided, a horizontal dashed line is drawn at log10(threshold).
-pub fn render_convergence_chart(
-    frame: &mut Frame,
-    area: Rect,
-    title: &str,
-    x_label: &str,
-    y_label: &str,
-    all_points: Vec<Vec<(f64, f64)>>,
-    threshold: Option<f64>,
-) {
-    use core::f64;
+/// Log-scale convergence scatter chart with optional threshold line.
+/// Supports multiple datasets (colored differently) for overlaying e.g. last N blocks.
+pub struct ConvergenceChart {
+    pub title: String,
+    pub x_label: &'static str,
+    pub y_label: &'static str,
+    pub datasets: Vec<Vec<(f64, f64)>>,
+    pub threshold: Option<f64>,
+}
 
-    let block = Block::bordered().title(Line::from(format!(" {} ", title)).bold().centered());
-
-    if all_points.is_empty() || all_points.iter().all(|pts| pts.is_empty()) {
-        frame.render_widget(block, area);
-        return;
+impl ConvergenceChart {
+    pub fn new(
+        title: impl Into<String>,
+        x_label: &'static str,
+        y_label: &'static str,
+        datasets: Vec<Vec<(f64, f64)>>,
+        threshold: Option<f64>,
+    ) -> Self {
+        Self {
+            title: title.into(),
+            x_label,
+            y_label,
+            datasets,
+            threshold,
+        }
     }
+}
 
-    // Calculate bounds
-    let mut x_min = f64::INFINITY;
-    let mut x_max = f64::NEG_INFINITY;
-    let mut y_min = f64::INFINITY;
-    let mut y_max = f64::NEG_INFINITY;
+impl Renderable for ConvergenceChart {
+    fn render(&self, frame: &mut Frame, area: Rect) {
+        use core::f64;
 
-    for dataset in &all_points {
-        for &(x, y) in dataset {
-            x_min = x_min.min(x);
-            x_max = x_max.max(x);
-            y_min = y_min.min(y);
-            y_max = y_max.max(y);
+        let block =
+            Block::bordered().title(Line::from(format!(" {} ", self.title)).bold().centered());
+
+        if self.datasets.is_empty() || self.datasets.iter().all(|pts| pts.is_empty()) {
+            frame.render_widget(block, area);
+            return;
+        }
+
+        // Calculate bounds
+        let mut x_min = f64::INFINITY;
+        let mut x_max = f64::NEG_INFINITY;
+        let mut y_min = f64::INFINITY;
+        let mut y_max = f64::NEG_INFINITY;
+
+        for dataset in &self.datasets {
+            for &(x, y) in dataset {
+                x_min = x_min.min(x);
+                x_max = x_max.max(x);
+                y_min = y_min.min(y);
+                y_max = y_max.max(y);
+            }
+        }
+
+        if !x_min.is_finite() || x_min == x_max {
+            x_min = 0.0;
+            x_max = 10.0;
+        }
+        if let Some(thr) = self.threshold {
+            let y_thr = thr.max(1e-22).log10();
+            y_min = y_min.min(y_thr);
+            y_max = y_max.max(y_thr);
+        }
+
+        if !y_min.is_finite() || y_min == y_max {
+            y_min = -16.0;
+            y_max = -6.0;
+        } else {
+            let pad = ((y_max - y_min).abs() * 0.10).max(0.1);
+            y_min -= pad;
+            y_max += pad;
+        }
+        let x_mid = (x_min + x_max) / 2.0;
+        let y_mid = (y_min + y_max) / 2.0;
+
+        let colors = [Color::LightRed, Color::LightYellow, Color::LightGreen];
+
+        let threshold_line: Option<Vec<(f64, f64)>> = self.threshold.map(|thr| {
+            let y_threshold = thr.max(1e-22).log10();
+            vec![(x_min, y_threshold), (x_max, y_threshold)]
+        });
+
+        let mut ratatui_datasets: Vec<Dataset> = Vec::new();
+
+        if let Some(ref line) = threshold_line {
+            ratatui_datasets.push(
+                Dataset::default()
+                    .name("thr")
+                    .graph_type(GraphType::Line)
+                    .marker(symbols::Marker::Braille)
+                    .style(Style::default().fg(Color::DarkGray))
+                    .data(line),
+            );
+        }
+
+        let n = self.datasets.len();
+        for (i, points) in self.datasets.iter().enumerate() {
+            let color_idx = i % colors.len();
+            let mut dataset = Dataset::default()
+                .graph_type(GraphType::Scatter)
+                .style(Style::default().fg(colors[color_idx]))
+                .data(points)
+                .marker(symbols::Marker::Dot);
+            if n > 1 {
+                dataset = dataset.name(format!("-{}", n - i));
+            }
+            ratatui_datasets.push(dataset);
+        }
+
+        let chart = Chart::new(ratatui_datasets)
+            .block(block)
+            .x_axis(
+                Axis::default()
+                    .title(self.x_label)
+                    .bounds([x_min, x_max])
+                    .labels([
+                        Line::from(format!("{:.0}", x_min)),
+                        Line::from(format!("{:.0}", x_mid)),
+                        Line::from(format!("{:.0}", x_max)),
+                    ]),
+            )
+            .y_axis(
+                Axis::default()
+                    .title(self.y_label)
+                    .bounds([y_min, y_max])
+                    .labels([
+                        Line::from(format!("{:.1e}", 10f64.powf(y_min))),
+                        Line::from(format!("{:.1e}", 10f64.powf(y_mid))),
+                        Line::from(format!("{:.1e}", 10f64.powf(y_max))),
+                    ]),
+            );
+
+        frame.render_widget(chart, area);
+    }
+}
+
+// ========================================
+// TabGroup — generic tabbed widget container
+// ========================================
+
+pub trait Renderable {
+    fn render(&self, frame: &mut Frame, area: Rect);
+}
+
+#[derive(Default)]
+pub struct TabGroup {
+    tabs: Vec<(&'static str, Box<dyn Renderable>)>,
+    active: usize,
+}
+
+impl std::fmt::Debug for TabGroup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TabGroup")
+            .field("active", &self.active)
+            .field("num_tabs", &self.tabs.len())
+            .finish()
+    }
+}
+
+impl TabGroup {
+    /// Replace all tabs, preserving active index if still in range.
+    pub fn rebuild(&mut self, tabs: Vec<(&'static str, Box<dyn Renderable>)>) {
+        self.tabs = tabs;
+        if self.active >= self.tabs.len() {
+            self.active = 0;
         }
     }
 
-    if !x_min.is_finite() || x_min == x_max {
-        x_min = 0.0;
-        x_max = 10.0;
-    }
-    // Extend bounds to always include the threshold line
-    if let Some(thr) = threshold {
-        let y_thr = thr.max(1e-22).log10();
-        y_min = y_min.min(y_thr);
-        y_max = y_max.max(y_thr);
-    }
-
-    if !y_min.is_finite() || y_min == y_max {
-        y_min = -16.0;
-        y_max = -6.0;
-    } else {
-        let pad = ((y_max - y_min).abs() * 0.10).max(0.1);
-        y_min -= pad;
-        y_max += pad;
-    }
-    let x_mid = (x_min + x_max) / 2.0;
-    let y_mid = (y_min + y_max) / 2.0;
-
-    let colors = [Color::LightRed, Color::LightYellow, Color::LightGreen];
-
-    // Prepare threshold line data
-    let threshold_line: Option<Vec<(f64, f64)>> = threshold.map(|thr| {
-        let y_threshold = thr.max(1e-22).log10();
-        vec![(x_min, y_threshold), (x_max, y_threshold)]
-    });
-
-    let mut datasets: Vec<Dataset> = Vec::new();
-
-    // Add threshold line dataset
-    if let Some(ref line) = threshold_line {
-        datasets.push(
-            Dataset::default()
-                .name("thr")
-                .graph_type(GraphType::Line)
-                .marker(symbols::Marker::Braille)
-                .style(Style::default().fg(Color::DarkGray))
-                .data(line),
-        );
-    }
-
-    // Add data points
-    let n = all_points.len();
-    for (i, points) in all_points.iter().enumerate() {
-        let color_idx = i % colors.len();
-        let mut dataset = Dataset::default()
-            .graph_type(GraphType::Scatter)
-            .style(Style::default().fg(colors[color_idx]))
-            .data(points)
-            .marker(symbols::Marker::Dot);
-        if n > 1 {
-            dataset = dataset.name(format!("-{}", n - i));
+    /// Handle a key event (1/2/3/... to select tab). Returns true if consumed.
+    pub fn handle_key(&mut self, code: KeyCode) -> bool {
+        if let KeyCode::Char(c) = code
+            && let Some(digit) = c.to_digit(10)
+        {
+            let idx = (digit as usize).wrapping_sub(1); // '1' -> 0
+            if idx < self.tabs.len() {
+                self.active = idx;
+                return true;
+            }
         }
-        datasets.push(dataset);
+        false
     }
 
-    let chart = Chart::new(datasets)
-        .block(block)
-        .x_axis(
-            Axis::default()
-                .title(x_label)
-                .bounds([x_min, x_max])
-                .labels([
-                    Line::from(format!("{:.0}", x_min)),
-                    Line::from(format!("{:.0}", x_mid)),
-                    Line::from(format!("{:.0}", x_max)),
-                ]),
-        )
-        .y_axis(
-            Axis::default()
-                .title(y_label)
-                .bounds([y_min, y_max])
-                .labels([
-                    Line::from(format!("{:.1e}", 10f64.powf(y_min))),
-                    Line::from(format!("{:.1e}", 10f64.powf(y_mid))),
-                    Line::from(format!("{:.1e}", 10f64.powf(y_max))),
-                ]),
-        );
+    pub fn render(&self, frame: &mut Frame, area: Rect) {
+        if self.tabs.is_empty() {
+            frame.render_widget(Block::bordered(), area);
+            return;
+        }
 
-    frame.render_widget(chart, area);
+        // Single tab — no tab bar, just render the widget directly
+        if self.tabs.len() == 1 {
+            self.tabs[0].1.render(frame, area);
+            return;
+        }
+
+        // Multiple tabs: tab bar on top, content below
+        let chunks = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(area);
+
+        let titles: Vec<Line> = self
+            .tabs
+            .iter()
+            .enumerate()
+            .map(|(i, (label, _))| {
+                let text = format!(" {} {} ", i + 1, label);
+                if i == self.active {
+                    Line::from(text).style(Style::default().fg(Color::White).bold())
+                } else {
+                    Line::from(text).style(Style::default().fg(Color::DarkGray))
+                }
+            })
+            .collect();
+
+        let tabs = Tabs::new(titles)
+            .select(self.active)
+            .divider("│")
+            .highlight_style(Style::default().fg(Color::White).bold());
+
+        frame.render_widget(tabs, chunks[0]);
+
+        self.tabs[self.active].1.render(frame, chunks[1]);
+    }
 }
 
 pub fn stats_line(label: &str, xs: &[f64], decimals: usize) -> String {
