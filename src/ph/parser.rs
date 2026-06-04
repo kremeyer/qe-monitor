@@ -13,6 +13,7 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
 
     // for header before calculation
     let mut in_qpoint_list = false;
+    let mut split_qpoint_run = false;
 
     // for representation-level block
     let mut open_repr_block: Option<RepresentationBlock> = None;
@@ -40,15 +41,22 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
         }
 
         // header before calculation
-        if line.starts_with("N         xq(1)         xq(2)         xq(3)   N irreps") {
+        if line.starts_with("N         xq(1)         xq(2)         xq(3)") {
             in_qpoint_list = true;
-            pm.num_qpoints = 0;
-            pm.num_representations.clear();
+            continue;
+        }
+
+        if let Some(total_qpoints) = parse_ph_qpoint_run_total(line) {
+            split_qpoint_run = true;
+            pm.num_qpoints = pm.num_qpoints.max(total_qpoints);
             continue;
         }
 
         if in_qpoint_list {
             if line.starts_with("Calculation of q =") {
+                if !split_qpoint_run {
+                    pm.num_qpoints_completed += 1;
+                }
                 in_qpoint_list = false;
                 continue;
             }
@@ -56,21 +64,12 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
             //   1   0.000000000   0.000000000   0.000000000       4
             // They start with a digit and contain decimal points (the xq coords).
             // Degeneracy lines like "1   2   1   2" are all integers (no dots).
-            if line.bytes().next().is_some_and(|b| b.is_ascii_digit())
+            if !split_qpoint_run
+                && line.bytes().next().is_some_and(|b| b.is_ascii_digit())
                 && line.contains('.')
-                && let Some(n_irreps) = line
-                    .split_whitespace()
-                    .last()
-                    .and_then(|s| s.parse::<u32>().ok())
             {
                 pm.num_qpoints += 1;
-                pm.num_representations.push(n_irreps);
             }
-            continue;
-        }
-
-        if line.starts_with("Number of q in the star") {
-            pm.num_qpoints_completed += 1;
             continue;
         }
 
@@ -136,6 +135,11 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
             cur_iter = None;
             continue;
         }
+
+        if let Some(n_irreps) = parse_ph_irreps_count(line) {
+            pm.num_representations.push(n_irreps);
+            continue;
+        }
     }
 
     if let Some(mut b) = open_repr_block.take() {
@@ -178,8 +182,76 @@ fn parse_ph_ddv_scf2(line: &str) -> Option<f64> {
     cap_f64(&RE, line, 1)
 }
 
+fn parse_ph_qpoint_run_total(line: &str) -> Option<u32> {
+    static RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(
+            r"(?i)(\d+)\s*/\s*(\d+)\s+q-points\s+for\s+this\s+run,\s+from\s+(\d+)\s+to\s+(\d+)",
+        )
+        .unwrap()
+    });
+
+    let from = cap_u32(&RE, line, 3)?;
+    let to = cap_u32(&RE, line, 4)?;
+    Some(to.saturating_sub(from).saturating_add(1))
+}
+
+fn parse_ph_irreps_count(line: &str) -> Option<u32> {
+    static RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"(?i)There\s+are\s+(\d+)\s+irreducible\s+representations").unwrap()
+    });
+
+    cap_u32(&RE, line, 1)
+}
+
 fn parse_phonon_cpu_time(line: &str) -> Option<f64> {
     static RE: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"PHONON\s+:\s+([0-9]+(?:\.[0-9]+)?)s\s+CPU").unwrap());
     cap_f64(&RE, line, 1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_metrics;
+
+    #[test]
+    fn parses_split_qpoint_header_and_irreps() {
+        let output = r#"
+     Saving dvscf to file. Distribute only q points, not irreducible representations.
+        1 /  12 q-points for this run, from  2 to  2:
+       N       xq(1)         xq(2)         xq(3)
+       1   0.000000000   0.000000000   0.000000000
+       2   0.000000000   0.000000000  -0.128314539
+
+     Calculation of q =    0.0000000   0.0000000  -0.1283145
+
+     Number of q in the star: 1
+
+     There are   18 irreducible representations
+"#;
+
+        let metrics = parse_metrics(output);
+        assert_eq!(metrics.num_qpoints, 1);
+        assert_eq!(metrics.num_qpoints_completed, 0);
+        assert_eq!(metrics.num_representations, vec![18]);
+    }
+
+    #[test]
+    fn parses_unsplit_qpoint_table_rows() {
+        let output = r#"
+     N         xq(1)         xq(2)         xq(3)   N irreps
+       1   0.000000000   0.000000000   0.000000000       4
+       2   0.000000000   0.000000000  -0.128314539       4
+
+     Calculation of q =    0.0000000   0.0000000  -0.1283145
+
+     Number of q in the star: 2
+
+     There are    4 irreducible representations
+"#;
+
+        let metrics = parse_metrics(output);
+        assert_eq!(metrics.num_qpoints, 2);
+        assert_eq!(metrics.num_qpoints_completed, 1);
+        assert_eq!(metrics.num_representations, vec![4]);
+    }
 }

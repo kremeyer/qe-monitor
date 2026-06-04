@@ -42,7 +42,7 @@ pub fn parse_run_info(wannier90_output: &str) -> RunInfo {
             }
         }
 
-        // All header fields filled — no need to scan further
+        // All header fields filled - no need to scan further
         if run_info.executable.is_some()
             && run_info.version.is_some()
             && run_info.start_time.is_some()

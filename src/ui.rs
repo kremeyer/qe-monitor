@@ -136,7 +136,7 @@ fn render_header_right(frame: &mut Frame, area: Rect, metrics: &Metrics) {
 
             let fmt = |v: Option<f64>| {
                 v.map(|x| format!("{:.2e}", x))
-                    .unwrap_or_else(|| "—".to_string())
+                    .unwrap_or_else(|| "-".to_string())
             };
             let fmt_cur = |v: Option<f64>| v.map(|x| format!("{:.2e}", x)).unwrap_or_default();
 
@@ -397,7 +397,7 @@ impl Renderable for ConvergenceChart {
 }
 
 // ========================================
-// TabGroup — generic tabbed widget container
+// TabGroup - generic tabbed widget container
 // ========================================
 
 pub trait Renderable {
@@ -448,7 +448,7 @@ impl TabGroup {
             return;
         }
 
-        // Single tab — no tab bar, just render the widget directly
+        // Single tab - no tab bar, just render the widget directly
         if self.tabs.len() == 1 {
             self.tabs[0].1.render(frame, area);
             return;
@@ -484,7 +484,7 @@ impl TabGroup {
 
 pub fn stats_line(label: &str, xs: &[f64], decimals: usize) -> String {
     if xs.is_empty() {
-        return format!("{label} —");
+        return format!("{label} -");
     }
     let (mu, sigma) = mean_std(xs);
     format!("{label} {mu:.d$} ± {sigma:.d$}", d = decimals)
