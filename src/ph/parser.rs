@@ -12,8 +12,15 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
     let mut pm = PhMetrics::default();
 
     // for header before calculation
-    let mut in_qpoint_list = false;
-    let mut split_qpoint_run = false;
+    let mut in_degeneracy_table = false;
+
+    // Per-q-point irreps counts, read up-front from the
+    // "Number and degeneracy of irreps per q-point" table (authoritative total).
+    let mut qpoint_irreps: Vec<u32> = Vec::new();
+    // Fallback per-q irreps, from the "There are N irreducible representations"
+    // lines that appear only as each q-point is reached (used when no table exists,
+    // e.g. split runs).
+    let mut there_are_reps: Vec<u32> = Vec::new();
 
     // for representation-level block
     let mut open_repr_block: Option<RepresentationBlock> = None;
@@ -40,35 +47,53 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
             continue;
         }
 
-        // header before calculation
-        if line.starts_with("N         xq(1)         xq(2)         xq(3)") {
-            in_qpoint_list = true;
-            continue;
-        }
-
-        if let Some(total_qpoints) = parse_ph_qpoint_run_total(line) {
-            split_qpoint_run = true;
+        // Total number of q-points, announced up front for a uniform-grid run:
+        //     (  24 q-points):
+        if let Some(total_qpoints) = parse_grid_qpoint_total(line) {
             pm.num_qpoints = pm.num_qpoints.max(total_qpoints);
             continue;
         }
 
-        if in_qpoint_list {
-            if line.starts_with("Calculation of q =") {
-                if !split_qpoint_run {
-                    pm.num_qpoints_completed += 1;
-                }
-                in_qpoint_list = false;
-                continue;
-            }
-            // Q-point/irreps data lines look like:
-            //   1   0.000000000   0.000000000   0.000000000       4
-            // They start with a digit and contain decimal points (the xq coords).
-            // Degeneracy lines like "1   2   1   2" are all integers (no dots).
-            if !split_qpoint_run
-                && line.bytes().next().is_some_and(|b| b.is_ascii_digit())
-                && line.contains('.')
-            {
-                pm.num_qpoints += 1;
+        // Split run header:  "1 / 12 q-points for this run, from 2 to 2:"
+        // The total for *this* run is the size of the [from, to] range.
+        if let Some(total_qpoints) = parse_ph_qpoint_run_total(line) {
+            pm.num_qpoints = pm.num_qpoints.max(total_qpoints);
+            in_degeneracy_table = false;
+            continue;
+        }
+
+        // The "Number and degeneracy of irreps per q-point" table lists the
+        // irrep count for *every* q-point of the run in its last column, so it
+        // gives both the true total number of representations and the number of
+        // q-points. Its header is the only q-point table header with an "N irreps"
+        // column, which distinguishes it from the plain "uniform grid" listing
+        // that shares the same "N   xq(1) xq(2) xq(3)" prefix.
+        if line.starts_with("Number and degeneracy of irreps per q-point")
+            || (line.starts_with("N ") && line.contains("xq(1)") && line.contains("N irreps"))
+        {
+            in_degeneracy_table = true;
+            continue;
+        }
+
+        // A q-point calculation starting closes the degeneracy table.
+        if line.starts_with("Calculation of q =") {
+            in_degeneracy_table = false;
+            continue;
+        }
+
+        // A q-point is finished once its dynamical matrix / star is written.
+        if line.starts_with("Number of q in the star") {
+            pm.num_qpoints_completed += 1;
+            continue;
+        }
+
+        if in_degeneracy_table {
+            //   3   0.000000000   0.128300060   0.000000000      12
+            // Trailing integer is the irrep count. Degeneracy sub-lines
+            // ("1  1  2  2") are all integers and "No degeneracy" is text, so
+            // neither parses as a row.
+            if let Some(n_irreps) = parse_degeneracy_row(line) {
+                qpoint_irreps.push(n_irreps);
             }
             continue;
         }
@@ -137,7 +162,7 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
         }
 
         if let Some(n_irreps) = parse_ph_irreps_count(line) {
-            pm.num_representations.push(n_irreps);
+            there_are_reps.push(n_irreps);
             continue;
         }
     }
@@ -162,6 +187,20 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
         }
     }
 
+    // Prefer the up-front degeneracy table (covers all q-points of the run);
+    // fall back to the per-q "There are ... representations" lines otherwise.
+    pm.num_representations = if !qpoint_irreps.is_empty() {
+        qpoint_irreps
+    } else {
+        there_are_reps
+    };
+
+    // If the total wasn't announced (no uniform-grid or split header, e.g. a
+    // single-q recover run), infer it from the number of q-points listed.
+    if pm.num_qpoints == 0 {
+        pm.num_qpoints = pm.num_representations.len() as u32;
+    }
+
     pm
 }
 
@@ -180,6 +219,27 @@ fn parse_ph_ddv_scf2(line: &str) -> Option<f64> {
         Regex::new(r"\|ddv_scf\|\^2\s*=\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[EeDd][+-]?\d+)?)").unwrap()
     });
     cap_f64(&RE, line, 1)
+}
+
+/// Total q-points announced for a uniform grid run, e.g. "(  24 q-points):".
+fn parse_grid_qpoint_total(line: &str) -> Option<u32> {
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^\(\s*(\d+)\s+q-points\)").unwrap());
+    cap_u32(&RE, line, 1)
+}
+
+/// A row of the "Number and degeneracy of irreps per q-point" table:
+///   3   0.000000000   0.128300060   0.000000000      12
+/// Returns the trailing irrep count (12 here). Degeneracy sub-lines (all
+/// integers) and "No degeneracy" text lines yield None.
+fn parse_degeneracy_row(line: &str) -> Option<u32> {
+    let mut fields = line.split_whitespace();
+    let _n: u32 = fields.next()?.parse().ok()?;
+    for _ in 0..3 {
+        if !fields.next()?.contains('.') {
+            return None;
+        }
+    }
+    fields.next()?.parse::<u32>().ok()
 }
 
 fn parse_ph_qpoint_run_total(line: &str) -> Option<u32> {
@@ -214,7 +274,54 @@ mod tests {
     use super::parse_metrics;
 
     #[test]
+    fn full_grid_run_counts_all_qpoints_and_total_reps_once() {
+        // A uniform-grid run prints two tables that share the same
+        // "N   xq(1) xq(2) xq(3)" header prefix: the plain grid listing and the
+        // "Number and degeneracy of irreps" table. The q-points must be counted
+        // once, and the total number of representations is the sum of the whole
+        // irreps column (i.e. also for q-points not yet reached).
+        let output = r#"
+     Dynamical matrices for ( 2, 2, 1)  uniform grid of q-points
+     (   3 q-points):
+       N         xq(1)         xq(2)         xq(3)
+       1   0.000000000   0.000000000   0.000000000
+       2   0.000000000   0.500000000   0.000000000
+       3   0.500000000   0.500000000   0.000000000
+
+     Number and degeneracy of irreps per q-point
+       N         xq(1)         xq(2)         xq(3)   N irreps
+       1   0.000000000   0.000000000   0.000000000       8
+        1   1   2   2   1   1   2   2
+       2   0.000000000   0.500000000   0.000000000      12
+     No degeneracy
+       3   0.500000000   0.500000000   0.000000000       6
+     No degeneracy
+
+     Saving dvscf to file. Distribute only q points, not irreducible representations.
+
+     Calculation of q =    0.0000000   0.0000000   0.0000000
+     There are    8 irreducible representations
+     End of self-consistent calculation
+     Number of q in the star =    1
+
+     Calculation of q =    0.0000000   0.5000000   0.0000000
+     There are   12 irreducible representations
+"#;
+
+        let metrics = parse_metrics(output);
+        // 3 q-points, counted once (not 6).
+        assert_eq!(metrics.num_qpoints, 3);
+        // Only the first q-point has finished (one "Number of q in the star").
+        assert_eq!(metrics.num_qpoints_completed, 1);
+        // Total reps spans every q-point, including q3 which hasn't been reached.
+        assert_eq!(metrics.num_representations, vec![8, 12, 6]);
+        assert_eq!(metrics.num_representations.iter().sum::<u32>(), 26);
+    }
+
+    #[test]
     fn parses_split_qpoint_header_and_irreps() {
+        // A split run has no irreps-degeneracy table; the total is the size of
+        // the [from, to] range and reps come from the "There are ..." lines.
         let output = r#"
      Saving dvscf to file. Distribute only q points, not irreducible representations.
         1 /  12 q-points for this run, from  2 to  2:
@@ -223,8 +330,6 @@ mod tests {
        2   0.000000000   0.000000000  -0.128314539
 
      Calculation of q =    0.0000000   0.0000000  -0.1283145
-
-     Number of q in the star: 1
 
      There are   18 irreducible representations
 "#;
@@ -236,22 +341,25 @@ mod tests {
     }
 
     #[test]
-    fn parses_unsplit_qpoint_table_rows() {
+    fn single_qpoint_recover_run_infers_total_from_table() {
+        // A single-q recover run has only the irreps table (no grid or split
+        // header); the q-point total is inferred from the table's row count.
         let output = r#"
-     N         xq(1)         xq(2)         xq(3)   N irreps
-       1   0.000000000   0.000000000   0.000000000       4
-       2   0.000000000   0.000000000  -0.128314539       4
+     Number and degeneracy of irreps per q-point
+       N         xq(1)         xq(2)         xq(3)   N irreps
+       1   0.000000000   0.000000000   0.000000000      36
+     No degeneracy
 
-     Calculation of q =    0.0000000   0.0000000  -0.1283145
+     Saving dvscf to file. Distribute only q points, not irreducible representations.
 
-     Number of q in the star: 2
+     Calculation of q =    0.0000000   0.0000000   0.0000000
 
-     There are    4 irreducible representations
+     There are   36 irreducible representations
 "#;
 
         let metrics = parse_metrics(output);
-        assert_eq!(metrics.num_qpoints, 2);
-        assert_eq!(metrics.num_qpoints_completed, 1);
-        assert_eq!(metrics.num_representations, vec![4]);
+        assert_eq!(metrics.num_qpoints, 1);
+        assert_eq!(metrics.num_qpoints_completed, 0);
+        assert_eq!(metrics.num_representations, vec![36]);
     }
 }
