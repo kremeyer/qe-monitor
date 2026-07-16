@@ -170,8 +170,9 @@ pub fn render_scf_summary(frame: &mut Frame, area: Rect, pw: &PwMetrics) {
     }
 }
 
-/// Build the left-panel tabs for pw calculations.
-pub fn build_left_tabs(pm: &PwMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
+/// Build the full set of pw plots. Both main panels offer this same set, so the
+/// user can show any plot on the left (F-keys) and any on the right (numbers).
+pub fn build_tabs(pm: &PwMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
     if pm.calc_type == PwCalcType::Nscf {
         return vec![("K-point Time", Box::new(KptTimeChart::new(pm)))];
     }
@@ -206,6 +207,9 @@ pub fn build_left_tabs(pm: &PwMetrics) -> Vec<(&'static str, Box<dyn Renderable>
             )),
         ));
     }
+
+    // SCF accuracy last, so the right panel (default last) shows it as before.
+    tabs.push(("SCF acc.", Box::new(scf_accuracy_chart(pm))));
 
     tabs
 }
@@ -483,41 +487,42 @@ fn compute_log_bounds<'a>(
     (x_min, x_max, y_min, y_max)
 }
 
-pub fn render_scf_accuracy_chart(frame: &mut Frame, area: Rect, pw: &PwMetrics) {
+/// The SCF-accuracy convergence chart (last 3 SCF blocks), or an empty titled
+/// panel when there is no data yet.
+fn scf_accuracy_chart(pw: &PwMetrics) -> crate::ui::ChartOrEmpty {
     let scf_blocks = &pw.scf_blocks;
-    if scf_blocks.is_empty() {
-        let block = match pw.calc_type {
-            PwCalcType::Nscf => Block::bordered(),
-            PwCalcType::Scf => {
-                Block::bordered().title(Line::from(" SCF Accuracy ").bold().centered())
-            }
-        };
-        frame.render_widget(block, area);
-        return;
+
+    let chart = if scf_blocks.is_empty() {
+        None
+    } else {
+        // Take last 3 blocks to reduce clutter
+        let mut last3_scf_blocks: Vec<&crate::pw::ScfBlock> =
+            scf_blocks.iter().rev().take(3).collect();
+        last3_scf_blocks.reverse();
+
+        let all_points: Vec<Vec<(f64, f64)>> = last3_scf_blocks
+            .iter()
+            .map(|block| {
+                block
+                    .iteration
+                    .iter()
+                    .zip(block.accuracy.iter())
+                    .map(|(&iteration, &accuracy)| (iteration as f64, accuracy.max(1e-30).log10()))
+                    .collect()
+            })
+            .collect();
+
+        Some(ConvergenceChart::new(
+            "SCF Accuracy",
+            "iteration",
+            "accuracy",
+            all_points,
+            pw.scf_conv_thr,
+        ))
+    };
+
+    crate::ui::ChartOrEmpty {
+        chart,
+        empty_title: Some(" SCF Accuracy "),
     }
-
-    // Take last 3 blocks to reduce clutter
-    let mut last3_scf_blocks: Vec<&crate::pw::ScfBlock> = scf_blocks.iter().rev().take(3).collect();
-    last3_scf_blocks.reverse();
-
-    let all_points: Vec<Vec<(f64, f64)>> = last3_scf_blocks
-        .iter()
-        .map(|block| {
-            block
-                .iteration
-                .iter()
-                .zip(block.accuracy.iter())
-                .map(|(&iteration, &accuracy)| (iteration as f64, accuracy.max(1e-30).log10()))
-                .collect()
-        })
-        .collect();
-
-    ConvergenceChart::new(
-        "SCF Accuracy",
-        "iteration",
-        "accuracy",
-        all_points,
-        pw.scf_conv_thr,
-    )
-    .render(frame, area);
 }

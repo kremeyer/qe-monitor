@@ -78,7 +78,7 @@ pub fn ui(frame: &mut Frame, app: &App) {
 
     // render main widgets
     render_main_1(frame, main_widgets[0], app);
-    render_main_2(frame, main_widgets[1], &app.metrics);
+    render_main_2(frame, main_widgets[1], app);
 
     // render footer
     render_latest_output_lines(frame, footer[0], app);
@@ -207,14 +207,8 @@ fn render_main_1(frame: &mut Frame, area: Rect, app: &App) {
     app.left_charts.render(frame, area);
 }
 
-fn render_main_2(frame: &mut Frame, area: Rect, metrics: &Metrics) {
-    match metrics {
-        Metrics::Pw(pw) => crate::pw::ui::render_scf_accuracy_chart(frame, area, pw),
-        Metrics::Ph(ph) => crate::ph::ui::render_scf_accuracy_chart(frame, area, ph),
-        Metrics::Wannier90(wannier90) => {
-            crate::wannier90::ui::render_spread_chart(frame, area, wannier90)
-        }
-    }
+fn render_main_2(frame: &mut Frame, area: Rect, app: &App) {
+    app.right_charts.render(frame, area);
 }
 
 fn render_footer_right(frame: &mut Frame, area: Rect, app: &App) {
@@ -226,6 +220,7 @@ fn render_footer_right(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(
         Block::bordered()
             .title(Line::from(" Footer Right ").centered())
+            .title_bottom(Line::from(" plots: F1.. left · 1.. right").left_aligned())
             .title_bottom(Line::from(shortcuts).right_aligned()),
         area,
     );
@@ -404,10 +399,24 @@ pub trait Renderable {
     fn render(&self, frame: &mut Frame, area: Rect);
 }
 
+/// Which keys select tabs in a `TabGroup`. Lets two panels coexist without
+/// clashing: the left panel uses function keys, the right uses number keys.
+#[derive(Default, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TabKeys {
+    #[default]
+    Digit,
+    Function,
+}
+
 #[derive(Default)]
 pub struct TabGroup {
     tabs: Vec<(&'static str, Box<dyn Renderable>)>,
     active: usize,
+    keys: TabKeys,
+    /// Until the user selects a tab, track the last tab as the set grows. Lets the
+    /// right panel default to a different plot than the left instead of duplicating it.
+    prefer_last: bool,
+    user_selected: bool,
 }
 
 impl std::fmt::Debug for TabGroup {
@@ -415,29 +424,51 @@ impl std::fmt::Debug for TabGroup {
         f.debug_struct("TabGroup")
             .field("active", &self.active)
             .field("num_tabs", &self.tabs.len())
+            .field("keys", &self.keys)
             .finish()
     }
 }
 
 impl TabGroup {
-    /// Replace all tabs, preserving active index if still in range.
+    /// Set which key family selects tabs (builder style).
+    pub fn with_keys(mut self, keys: TabKeys) -> Self {
+        self.keys = keys;
+        self
+    }
+
+    /// Default to the last tab (until the user picks one). Builder style.
+    pub fn with_default_last(mut self) -> Self {
+        self.prefer_last = true;
+        self
+    }
+
+    /// Replace all tabs, preserving the active index if still in range.
     pub fn rebuild(&mut self, tabs: Vec<(&'static str, Box<dyn Renderable>)>) {
         self.tabs = tabs;
-        if self.active >= self.tabs.len() {
+        if self.tabs.is_empty() {
+            self.active = 0;
+        } else if self.prefer_last && !self.user_selected {
+            self.active = self.tabs.len() - 1;
+        } else if self.active >= self.tabs.len() {
             self.active = 0;
         }
     }
 
-    /// Handle a key event (1/2/3/... to select tab). Returns true if consumed.
+    /// Handle a key event (number or function keys, depending on `keys`).
+    /// Returns true if consumed.
     pub fn handle_key(&mut self, code: KeyCode) -> bool {
-        if let KeyCode::Char(c) = code
-            && let Some(digit) = c.to_digit(10)
-        {
-            let idx = (digit as usize).wrapping_sub(1); // '1' -> 0
-            if idx < self.tabs.len() {
-                self.active = idx;
-                return true;
-            }
+        let idx = match (self.keys, code) {
+            (TabKeys::Digit, KeyCode::Char(c)) => match c.to_digit(10) {
+                Some(digit) => (digit as usize).wrapping_sub(1), // '1' -> 0
+                None => return false,
+            },
+            (TabKeys::Function, KeyCode::F(n)) => (n as usize).wrapping_sub(1), // F1 -> 0
+            _ => return false,
+        };
+        if idx < self.tabs.len() {
+            self.active = idx;
+            self.user_selected = true;
+            return true;
         }
         false
     }
@@ -462,7 +493,10 @@ impl TabGroup {
             .iter()
             .enumerate()
             .map(|(i, (label, _))| {
-                let text = format!(" {} {} ", i + 1, label);
+                let text = match self.keys {
+                    TabKeys::Function => format!(" F{} {} ", i + 1, label),
+                    TabKeys::Digit => format!(" {} {} ", i + 1, label),
+                };
                 if i == self.active {
                     Line::from(text).style(Style::default().fg(Color::White).bold())
                 } else {
@@ -482,6 +516,29 @@ impl TabGroup {
     }
 }
 
+/// A `ConvergenceChart` when there is data, otherwise an empty bordered block
+/// (optionally titled). Lets a fixed right-hand chart live inside a `TabGroup`
+/// while preserving the previous "empty run shows a blank titled panel" look.
+pub struct ChartOrEmpty {
+    pub chart: Option<ConvergenceChart>,
+    pub empty_title: Option<&'static str>,
+}
+
+impl Renderable for ChartOrEmpty {
+    fn render(&self, frame: &mut Frame, area: Rect) {
+        match &self.chart {
+            Some(chart) => chart.render(frame, area),
+            None => {
+                let mut block = Block::bordered();
+                if let Some(title) = self.empty_title {
+                    block = block.title(Line::from(title).bold().centered());
+                }
+                frame.render_widget(block, area);
+            }
+        }
+    }
+}
+
 pub fn stats_line(label: &str, xs: &[f64], decimals: usize) -> String {
     if xs.is_empty() {
         return format!("{label} -");
@@ -495,4 +552,68 @@ pub fn mean_std(xs: &[f64]) -> (f64, f64) {
     let mean = xs.iter().sum::<f64>() / n;
     let var = xs.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / n;
     (mean, var.sqrt())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crossterm::event::KeyCode;
+    use ratatui::backend::TestBackend;
+
+    fn buffer_text(term: &ratatui::Terminal<TestBackend>) -> String {
+        term.backend()
+            .buffer()
+            .content()
+            .iter()
+            .map(|c| c.symbol())
+            .collect()
+    }
+
+    /// Render a `build_tabs` set into left (F-keys) and right (numbers, default
+    /// last) panels; assert both draw and that the two panels default to different
+    /// tabs when more than one plot exists.
+    fn check(tabs_fn: impl Fn() -> Vec<(&'static str, Box<dyn Renderable>)>, expect: &str) {
+        let n = tabs_fn().len();
+        let mut left = TabGroup::default().with_keys(TabKeys::Function);
+        let mut right = TabGroup::default()
+            .with_keys(TabKeys::Digit)
+            .with_default_last();
+        left.rebuild(tabs_fn());
+        right.rebuild(tabs_fn());
+
+        // Different default plot per panel when there is a choice.
+        if n > 1 {
+            assert_ne!(left.active, right.active, "{expect}: panels default to same tab");
+            assert_eq!(right.active, n - 1, "{expect}: right should default to last");
+        }
+
+        let mut term = ratatui::Terminal::new(TestBackend::new(120, 40)).unwrap();
+        term.draw(|f| {
+            let cols =
+                Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                    .split(f.area());
+            left.render(f, cols[0]);
+            right.render(f, cols[1]);
+        })
+        .unwrap();
+        let text = buffer_text(&term);
+        assert!(text.contains(expect), "{expect}: not rendered -> {text:?}");
+
+        // F-keys drive left, digits drive right; they must not collide.
+        assert!(left.handle_key(KeyCode::F(1)));
+        assert!(!left.handle_key(KeyCode::Char('1')));
+        assert!(right.handle_key(KeyCode::Char('1')));
+        assert!(!right.handle_key(KeyCode::F(1)));
+    }
+
+    #[test]
+    fn all_calc_types_have_both_panels() {
+        use crate::{ph, pw, wannier90};
+        check(|| pw::ui::build_tabs(&pw::PwMetrics::default()), "SCF acc.");
+        check(|| ph::ui::build_tabs(&ph::PhMetrics::default()), "SCF acc.");
+        check(
+            || wannier90::ui::build_tabs(&wannier90::WannierMetrics::default()),
+            "Spread abs",
+        );
+    }
 }

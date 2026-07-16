@@ -1,9 +1,22 @@
 use ratatui::style::Stylize;
-use ratatui::widgets::Paragraph;
-use ratatui::{Frame, layout::Rect, text::Line, widgets::Block};
+use ratatui::{
+    Frame,
+    layout::Rect,
+    text::Line,
+    widgets::{Bar, BarChart, BarGroup, Block, Paragraph},
+};
 
 use crate::ui::{ConvergenceChart, Renderable};
 use crate::wannier90::WannierMetrics;
+
+/// Helper: convert a value series into `(iteration, log10(|value|))` points.
+fn to_log_points(values: &[f64]) -> Vec<(f64, f64)> {
+    values
+        .iter()
+        .enumerate()
+        .map(|(i, &d)| (i as f64, d.abs().max(1e-30).log10()))
+        .collect()
+}
 
 pub fn render_summary(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
     let block = Block::bordered().title(Line::from(" Wannierisation ").bold().centered());
@@ -119,47 +132,108 @@ pub fn render_summary(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-pub fn render_spread_chart(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
-    let points: Vec<(f64, f64)> = wm
-        .spread_block
-        .spread
-        .iter()
-        .enumerate()
-        .map(|(i, &d)| (i as f64, d.abs().max(1e-30).log10()))
-        .collect();
-
-    ConvergenceChart::new(
-        "Wannierisation Spread",
-        "iter",
-        "Spread (Ang^2)",
-        vec![points],
-        None,
-    )
-    .render(frame, area);
+/// Bar chart of the per-Wannier-function spreads of the last complete iteration.
+struct WfSpreadBarChart {
+    spreads: Vec<f64>,
 }
 
-/// Build the left-panel tabs for wannier90 calculations.
-pub fn build_left_tabs(wm: &WannierMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
-    let points = wm
-        .disentanglement_block
-        .as_ref()
-        .map(|db| {
-            db.delta_omega_i
-                .iter()
-                .enumerate()
-                .map(|(i, &d)| (i as f64, d.abs().max(1e-30).log10()))
-                .collect()
-        })
-        .unwrap_or_default();
+impl Renderable for WfSpreadBarChart {
+    fn render(&self, frame: &mut Frame, area: Rect) {
+        let block = Block::bordered().title(Line::from(" WF Spreads (Ang²) ").bold().centered());
 
-    vec![(
-        "ΔΩ Disentangle",
+        if self.spreads.is_empty() {
+            frame.render_widget(block, area);
+            return;
+        }
+
+        let n_dig = format!("{}", self.spreads.len()).len();
+        let bars: Vec<Bar> = self
+            .spreads
+            .iter()
+            .enumerate()
+            .map(|(i, &s)| {
+                Bar::default()
+                    // scale to integer length; keeps relative bar heights
+                    .value((s.max(0.0) * 1000.0) as u64)
+                    .label(Line::from(format!("{:n_dig$}", i + 1)))
+                    .text_value(format!("{s:.3}"))
+            })
+            .collect();
+
+        let bar_chart = BarChart::default()
+            .block(block)
+            .data(BarGroup::default().bars(&bars))
+            .bar_gap(0)
+            .bar_width(1)
+            .direction(ratatui::layout::Direction::Horizontal);
+        frame.render_widget(bar_chart, area);
+    }
+}
+
+/// Build the full set of wannier90 plots. Both main panels offer this same set,
+/// so the user can show any plot on the left (F-keys) and any on the right (numbers).
+///
+/// With disentanglement: Disent. abs / Disent. Δ / Spread abs / Spread Δ / WF spreads.
+/// Without disentanglement, the two disentanglement tabs are omitted.
+pub fn build_tabs(wm: &WannierMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
+    let mut tabs: Vec<(&'static str, Box<dyn Renderable>)> = Vec::new();
+
+    if let Some(db) = wm.disentanglement_block.as_ref() {
+        tabs.push((
+            "Disent. abs",
+            Box::new(ConvergenceChart::new(
+                "Disentanglement Ω_I",
+                "iter",
+                "Ω_I",
+                vec![to_log_points(&db.omega_i)],
+                None,
+            )),
+        ));
+        tabs.push((
+            "Disent. Δ",
+            Box::new(ConvergenceChart::new(
+                "Disentanglement ΔΩ",
+                "iter",
+                "ΔΩ",
+                vec![to_log_points(&db.delta_omega_i)],
+                wm.disentanglement_conv_threshold,
+            )),
+        ));
+    }
+
+    tabs.push((
+        "Spread abs",
         Box::new(ConvergenceChart::new(
-            "Disentanglement ΔΩ",
+            "Wannierisation Spread",
+            "iter",
+            "Spread (Ang^2)",
+            vec![to_log_points(&wm.spread_block.spread)],
+            None,
+        )),
+    ));
+
+    let wann_thr = if wm.wannierize_conv_threshold > 0.0 {
+        Some(wm.wannierize_conv_threshold)
+    } else {
+        None
+    };
+    tabs.push((
+        "Spread Δ",
+        Box::new(ConvergenceChart::new(
+            "Wannierisation ΔΩ",
             "iter",
             "ΔΩ",
-            vec![points],
-            wm.disentanglement_conv_threshold,
+            vec![to_log_points(&wm.spread_block.delta_spread)],
+            wann_thr,
         )),
-    )]
+    ));
+
+    tabs.push((
+        "WF spreads",
+        Box::new(WfSpreadBarChart {
+            spreads: wm.spread_block.wf_spreads_last.clone(),
+        }),
+    ));
+
+    tabs
 }

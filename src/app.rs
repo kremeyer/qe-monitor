@@ -8,7 +8,7 @@ use std::{
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind};
 use ratatui::{Terminal, backend::CrosstermBackend};
 
-use crate::{CalcType, ph, pw, ui, ui::TabGroup, wannier90};
+use crate::{CalcType, ph, pw, ui, ui::TabGroup, ui::TabKeys, wannier90};
 
 #[derive(Debug, Default)]
 pub struct RunInfo {
@@ -45,6 +45,7 @@ pub struct App {
     pub metrics: Metrics,
 
     pub left_charts: TabGroup,
+    pub right_charts: TabGroup,
 
     pub output_file: String,
     pub last_modified: Option<SystemTime>,
@@ -66,7 +67,10 @@ impl App {
                 CalcType::Ph => Metrics::Ph(ph::PhMetrics::default()),
                 CalcType::Wannier90 => Metrics::Wannier90(wannier90::WannierMetrics::default()),
             },
-            left_charts: TabGroup::default(),
+            left_charts: TabGroup::default().with_keys(TabKeys::Function),
+            right_charts: TabGroup::default()
+                .with_keys(TabKeys::Digit)
+                .with_default_last(),
             output_file: String::new(),
             last_modified: None,
             last_size: 0,
@@ -117,8 +121,11 @@ impl App {
             self.exit = true;
         }
 
-        // Let TabGroup handle number keys first
+        // Let the panels grab their selector keys first: left = F-keys, right = numbers.
         if self.left_charts.handle_key(key_event.code) {
+            return;
+        }
+        if self.right_charts.handle_key(key_event.code) {
             return;
         }
 
@@ -191,19 +198,24 @@ impl App {
                 self.metrics = Metrics::Wannier90(wannier90::parse_metrics(&self.output_file));
             }
         }
-        self.build_left_charts();
+        self.build_charts();
     }
 
-    fn build_left_charts(&mut self) {
+    fn build_charts(&mut self) {
+        // Every calculation type offers the same full set of plots on both panels:
+        // the left panel (F-keys) and the right panel (number keys) each pick one.
         match &self.metrics {
             Metrics::Pw(pm) => {
-                self.left_charts.rebuild(pw::ui::build_left_tabs(pm));
+                self.left_charts.rebuild(pw::ui::build_tabs(pm));
+                self.right_charts.rebuild(pw::ui::build_tabs(pm));
             }
             Metrics::Ph(pm) => {
-                self.left_charts.rebuild(ph::ui::build_left_tabs(pm));
+                self.left_charts.rebuild(ph::ui::build_tabs(pm));
+                self.right_charts.rebuild(ph::ui::build_tabs(pm));
             }
             Metrics::Wannier90(wm) => {
-                self.left_charts.rebuild(wannier90::ui::build_left_tabs(wm));
+                self.left_charts.rebuild(wannier90::ui::build_tabs(wm));
+                self.right_charts.rebuild(wannier90::ui::build_tabs(wm));
             }
         }
     }

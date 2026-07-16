@@ -120,47 +120,57 @@ pub fn render_phonon_summary(frame: &mut Frame, area: Rect, pm: &PhMetrics) {
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-pub fn render_scf_accuracy_chart(frame: &mut Frame, area: Rect, ph: &PhMetrics) {
-    let representation_blocks = &ph.representation_blocks;
-    if representation_blocks.is_empty() {
-        let block = Block::bordered().title(Line::from(" SCF Accuracy ").bold().centered());
-        frame.render_widget(block, area);
-        return;
-    }
-
-    // Take last 3 blocks to reduce clutter
-    let mut last3_blocks: Vec<&crate::pw::ScfBlock> =
-        representation_blocks.iter().rev().take(3).collect();
-    last3_blocks.reverse();
-
-    // Build points for each block
-    let mut all_points: Vec<Vec<(f64, f64)>> = Vec::new();
-    for block in &last3_blocks {
-        let pts: Vec<(f64, f64)> = block
-            .iteration
-            .iter()
-            .zip(block.accuracy.iter())
-            .map(|(&iteration, &accuracy)| (iteration as f64, accuracy.max(1e-30).log10()))
-            .collect();
-        all_points.push(pts)
-    }
-
-    crate::ui::ConvergenceChart::new(
-        "SCF Accuracy",
-        "iteration",
-        "accuracy",
-        all_points,
-        ph.conv_threshold,
-    )
-    .render(frame, area);
+/// Build the full set of ph plots. Both main panels offer this same set, so the
+/// user can show any plot on the left (F-keys) and any on the right (numbers).
+pub fn build_tabs(pm: &PhMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
+    vec![
+        (
+            "Repr. Iters",
+            Box::new(RepresentationIterationsChart::from(pm)) as Box<dyn Renderable>,
+        ),
+        // SCF accuracy last, so the right panel (default last) shows it as before.
+        ("SCF acc.", Box::new(scf_accuracy_chart(pm))),
+    ]
 }
 
-/// Build the left-panel tabs for ph calculations.
-pub fn build_left_tabs(pm: &PhMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
-    vec![(
-        "Repr. Iters",
-        Box::new(RepresentationIterationsChart::from(pm)),
-    )]
+/// The SCF-accuracy convergence chart (last 3 representation blocks), or an empty
+/// titled panel when there is no data yet.
+fn scf_accuracy_chart(ph: &PhMetrics) -> crate::ui::ChartOrEmpty {
+    let representation_blocks = &ph.representation_blocks;
+
+    let chart = if representation_blocks.is_empty() {
+        None
+    } else {
+        // Take last 3 blocks to reduce clutter
+        let mut last3_blocks: Vec<&crate::pw::ScfBlock> =
+            representation_blocks.iter().rev().take(3).collect();
+        last3_blocks.reverse();
+
+        // Build points for each block
+        let mut all_points: Vec<Vec<(f64, f64)>> = Vec::new();
+        for block in &last3_blocks {
+            let pts: Vec<(f64, f64)> = block
+                .iteration
+                .iter()
+                .zip(block.accuracy.iter())
+                .map(|(&iteration, &accuracy)| (iteration as f64, accuracy.max(1e-30).log10()))
+                .collect();
+            all_points.push(pts)
+        }
+
+        Some(crate::ui::ConvergenceChart::new(
+            "SCF Accuracy",
+            "iteration",
+            "accuracy",
+            all_points,
+            ph.conv_threshold,
+        ))
+    };
+
+    crate::ui::ChartOrEmpty {
+        chart,
+        empty_title: Some(" SCF Accuracy "),
+    }
 }
 
 struct RepresentationIterationsChart {

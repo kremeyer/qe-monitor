@@ -66,9 +66,28 @@ pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
     let mut in_disentangle_section: bool = false;
     wm.wannierize_conv_threshold = -1.0;
     let mut conv_buffer_value = 0.0;
+    let mut wf_accum: Vec<f64> = Vec::new();
 
     for raw in wannier90_output.lines() {
         let line = raw.trim_start();
+
+        // Per-Wannier-function spreads. Blocks appear each iteration and in the
+        // final state; markers are unambiguous, so scan unconditionally and keep
+        // the last complete block (the final state naturally wins when finished).
+        if line.contains("WF centre and spread") {
+            let mut fields = line.split_whitespace();
+            // "WF centre and spread   <N>   ( x, y, z )   <spread>"
+            let index = fields.nth(4).and_then(|s| s.parse::<u32>().ok());
+            let spread = line.split_whitespace().last().and_then(|s| s.parse::<f64>().ok());
+            if let Some(s) = spread {
+                if index == Some(1) {
+                    wf_accum.clear();
+                }
+                wf_accum.push(s);
+            }
+        } else if line.contains("Sum of centres and spreads") && !wf_accum.is_empty() {
+            wm.spread_block.wf_spreads_last = wf_accum.clone();
+        }
 
         // Track WANNIERISE / DISENTANGLE header sections to parse max iterations
         if line.starts_with('*') && line.ends_with('*') {
@@ -144,14 +163,17 @@ pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
 
         if in_disentanglement_block {
             if line.contains("<-- DIS") && !line.contains("Iter") && !line.contains("+---") {
-                let mut parts = line.split_whitespace();
-                if let (Some(delta), Some(time)) = (
-                    parts.nth(3).and_then(|s| s.parse::<f64>().ok()),
-                    parts.next().and_then(|s| s.parse::<f64>().ok()),
+                // Row: Iter  Omega_I(i-1)  Omega_I(i)  Delta(frac.)  Time  <-- DIS
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                if let (Some(omega_i), Some(delta), Some(time)) = (
+                    fields.get(2).and_then(|s| s.parse::<f64>().ok()),
+                    fields.get(3).and_then(|s| s.parse::<f64>().ok()),
+                    fields.get(4).and_then(|s| s.parse::<f64>().ok()),
                 ) {
                     let block = wm
                         .disentanglement_block
                         .get_or_insert_with(DisentanglementBlock::default);
+                    block.omega_i.push(omega_i);
                     block.delta_omega_i.push(delta);
                     block.cpu_time.push(time);
                 }
@@ -182,4 +204,49 @@ pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
     }
 
     wm
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_metrics;
+
+    #[test]
+    fn parses_omega_i_spread_and_last_wf_spreads() {
+        // Minimal excerpt: a DIS table (absolute Omega_I(i) + fractional delta),
+        // a CONV block, and two per-WF spread blocks. The last complete block (the
+        // "Final State" one) must win for wf_spreads_last.
+        let output = r#"
+ Extraction of optimally-connected subspace
+ +---------------------------------------------------------------------+<-- DIS
+ |  Iter     Omega_I(i-1)      Omega_I(i)      Delta (frac.)    Time   |<-- DIS
+ +---------------------------------------------------------------------+<-- DIS
+       1      22.82053478      21.35148593       6.880E-02      0.00    <-- DIS
+       2      21.99618771      20.66625678       6.435E-02      0.05    <-- DIS
+ Time to disentangle bands
+ +--------------------------------------------------------------------+<-- CONV
+ | Iter  Delta Spread     RMS Gradient      Spread (Ang^2)      Time  |<-- CONV
+ +--------------------------------------------------------------------+<-- CONV
+  WF centre and spread    1  (  0.0, 0.0, 0.0 )     2.98428934
+  WF centre and spread    2  (  0.0, 0.0, 0.0 )     1.95250110
+  Sum of centres and spreads (  0.0, 0.0, 0.0 )    4.93679044
+      0     0.599E+02     0.0000000000       59.9115099639     103.95  <-- CONV
+ Final State
+  WF centre and spread    1  (  0.0, 0.0, 0.0 )     1.24982419
+  WF centre and spread    2  (  0.0, 0.0, 0.0 )     0.78838218
+  Sum of centres and spreads (  0.0, 0.0, 0.0 )    2.03820637
+ Time for wannierise
+"#;
+
+        let wm = parse_metrics(output);
+
+        let db = wm.disentanglement_block.as_ref().expect("disentanglement block");
+        assert_eq!(db.omega_i, vec![21.35148593, 20.66625678]);
+        assert_eq!(db.omega_i.len(), db.delta_omega_i.len());
+        assert!((db.delta_omega_i[0] - 6.880e-02).abs() < 1e-9);
+
+        assert_eq!(wm.spread_block.spread, vec![59.9115099639]);
+
+        // The Final State block is the last one, so it wins.
+        assert_eq!(wm.spread_block.wf_spreads_last, vec![1.24982419, 0.78838218]);
+    }
 }
