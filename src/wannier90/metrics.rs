@@ -8,10 +8,10 @@ pub struct DisentanglementBlock {
 
 #[derive(Debug, Default)]
 pub struct SpreadBlock {
-    pub cpu_time: Vec<f64>,          // CPU time at each iteration
-    pub spread: Vec<f64>,            // spread at each iteration
-    pub delta_spread: Vec<f64>,      // change in spread at each iteration
-    pub wf_spreads_last: Vec<f64>,   // per-Wannier-function spread of the last complete block
+    pub cpu_time: Vec<f64>,        // CPU time at each iteration
+    pub spread: Vec<f64>,          // spread at each iteration
+    pub delta_spread: Vec<f64>,    // change in spread at each iteration
+    pub wf_spreads_last: Vec<f64>, // per-Wannier-function spread of the last complete block
 }
 
 #[derive(Debug, Default)]

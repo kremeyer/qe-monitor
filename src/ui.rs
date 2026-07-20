@@ -583,15 +583,21 @@ mod tests {
 
         // Different default plot per panel when there is a choice.
         if n > 1 {
-            assert_ne!(left.active, right.active, "{expect}: panels default to same tab");
-            assert_eq!(right.active, n - 1, "{expect}: right should default to last");
+            assert_ne!(
+                left.active, right.active,
+                "{expect}: panels default to same tab"
+            );
+            assert_eq!(
+                right.active,
+                n - 1,
+                "{expect}: right should default to last"
+            );
         }
 
         let mut term = ratatui::Terminal::new(TestBackend::new(120, 40)).unwrap();
         term.draw(|f| {
-            let cols =
-                Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-                    .split(f.area());
+            let cols = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+                .split(f.area());
             left.render(f, cols[0]);
             right.render(f, cols[1]);
         })

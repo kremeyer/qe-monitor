@@ -78,7 +78,10 @@ pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
             let mut fields = line.split_whitespace();
             // "WF centre and spread   <N>   ( x, y, z )   <spread>"
             let index = fields.nth(4).and_then(|s| s.parse::<u32>().ok());
-            let spread = line.split_whitespace().last().and_then(|s| s.parse::<f64>().ok());
+            let spread = line
+                .split_whitespace()
+                .last()
+                .and_then(|s| s.parse::<f64>().ok());
             if let Some(s) = spread {
                 if index == Some(1) {
                     wf_accum.clear();
@@ -239,7 +242,10 @@ mod tests {
 
         let wm = parse_metrics(output);
 
-        let db = wm.disentanglement_block.as_ref().expect("disentanglement block");
+        let db = wm
+            .disentanglement_block
+            .as_ref()
+            .expect("disentanglement block");
         assert_eq!(db.omega_i, vec![21.35148593, 20.66625678]);
         assert_eq!(db.omega_i.len(), db.delta_omega_i.len());
         assert!((db.delta_omega_i[0] - 6.880e-02).abs() < 1e-9);
@@ -247,6 +253,9 @@ mod tests {
         assert_eq!(wm.spread_block.spread, vec![59.9115099639]);
 
         // The Final State block is the last one, so it wins.
-        assert_eq!(wm.spread_block.wf_spreads_last, vec![1.24982419, 0.78838218]);
+        assert_eq!(
+            wm.spread_block.wf_spreads_last,
+            vec![1.24982419, 0.78838218]
+        );
     }
 }
