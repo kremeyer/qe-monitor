@@ -220,7 +220,6 @@ fn render_footer_right(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(
         Block::bordered()
             .title(Line::from(" Footer Right ").centered())
-            .title_bottom(Line::from(" plots: F1.. left · 1.. right").left_aligned())
             .title_bottom(Line::from(shortcuts).right_aligned()),
         area,
     );
