@@ -1,13 +1,61 @@
 use crate::app::RunInfo;
 use crate::wannier90::{DisentanglementBlock, WannierMetrics};
+use crate::{WANN_MARKER, WANN_RESUME_MARKER};
+
+/// The banner title line, printed a few lines above [`WANN_MARKER`] in the same
+/// header box. Kept separate so the slice can start at the top of the banner.
+const WANN_BANNER_TITLE: &str = "WANNIER90";
+
+/// How far above the welcome line the banner title may sit for us to still count
+/// it as part of the same header box (the box is ~4 lines of ~65 columns).
+const BANNER_LOOKBEHIND: usize = 512;
+
+/// Restrict `output` to the most recent wannier90 run.
+///
+/// EPW drives wannier90 in library mode and *appends* to an existing `.wout`, so
+/// one file can hold several runs back to back — including aborted ones. Parsing
+/// the whole file concatenates their iteration series into a single nonsensical
+/// curve and mixes up thresholds and run info. Each invocation reopens with the
+/// WANNIER90 banner, so everything from the last banner onwards is the current
+/// run. A mid-run `Resuming Wannier90` line is *not* a new run and is kept.
+///
+/// When no banner is present at all - EPW appended to a `.wout` that begins
+/// directly with `Resuming Wannier90` - the resume line is the only run marker
+/// left, and every iteration table follows it, so use the last one instead.
+fn last_run(output: &str) -> &str {
+    let Some(welcome) = output.rfind(WANN_MARKER) else {
+        return match output.rfind(WANN_RESUME_MARKER) {
+            Some(resume) => &output[line_start(output, resume)..],
+            None => output,
+        };
+    };
+    let welcome_line = line_start(output, welcome);
+
+    // Back up to the banner title so parse_run_info still sees it.
+    let start = output[..welcome_line]
+        .rfind(WANN_BANNER_TITLE)
+        .filter(|&title| welcome_line - title <= BANNER_LOOKBEHIND)
+        .map(|title| line_start(output, title))
+        .unwrap_or(welcome_line);
+
+    &output[start..]
+}
+
+/// Byte offset of the start of the line containing `pos`.
+fn line_start(s: &str, pos: usize) -> usize {
+    s[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0)
+}
 
 pub fn parse_run_info(wannier90_output: &str) -> RunInfo {
     let mut run_info = RunInfo::default();
+    let wannier90_output = last_run(wannier90_output);
 
     for raw in wannier90_output.lines().take(100) {
         let line = raw.trim_start();
 
-        if run_info.executable.is_none() && line.contains("WANNIER90") {
+        if run_info.executable.is_none()
+            && (line.contains(WANN_BANNER_TITLE) || line.contains(WANN_RESUME_MARKER))
+        {
             run_info.executable = Some("Wannier90.x".to_string());
         }
 
@@ -29,6 +77,20 @@ pub fn parse_run_info(wannier90_output: &str) -> RunInfo {
                 .trim()
                 .replace(" at ", " ");
             run_info.start_time = Some(after);
+        }
+
+        // A banner-less run has no "Execution started on" line; its resume line
+        // carries the only timestamp. Checked second so the banner still wins.
+        if run_info.start_time.is_none()
+            && let Some(pos) = line.find(WANN_RESUME_MARKER)
+        {
+            let after = line[(pos + WANN_RESUME_MARKER.len())..]
+                .trim()
+                .trim_start_matches("at")
+                .trim();
+            if !after.is_empty() {
+                run_info.start_time = Some(after.to_string());
+            }
         }
 
         if run_info.mpi_ranks.is_none() {
@@ -59,6 +121,7 @@ pub fn parse_run_info(wannier90_output: &str) -> RunInfo {
 }
 
 pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
+    let wannier90_output = last_run(wannier90_output);
     let mut wm = WannierMetrics::default();
     let mut in_disentanglement_block: bool = false;
     let mut in_wannierization_block: bool = false;
@@ -211,7 +274,7 @@ pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
 
 #[cfg(test)]
 mod tests {
-    use super::parse_metrics;
+    use super::{WANN_MARKER, last_run, parse_metrics, parse_run_info};
 
     #[test]
     fn parses_omega_i_spread_and_last_wf_spreads() {
@@ -257,5 +320,169 @@ mod tests {
             wm.spread_block.wf_spreads_last,
             vec![1.24982419, 0.78838218]
         );
+    }
+
+    /// A wannier90 banner header, as printed at the top of every invocation.
+    fn banner(release: &str, started: &str) -> String {
+        format!(
+            "             +---------------------------------------------------+\n\
+             \x20            |                                                   |\n\
+             \x20            |                   WANNIER90                       |\n\
+             \x20            |                                                   |\n\
+             \x20            +---------------------------------------------------+\n\
+             \x20            |        Welcome to the Maximally-Localized         |\n\
+             \x20            |        Generalized Wannier Functions code         |\n\
+             \x20            |  Release: {release}   Execution started on {started}  |\n\
+             \x20Running in serial (with parallel executable)\n"
+        )
+    }
+
+    /// One complete run body with a single DIS row and a single CONV row.
+    fn run_body(omega: f64, spread: f64) -> String {
+        format!(
+            " Extraction of optimally-connected subspace\n\
+             \x20      1      99.00000000      {omega:.8}       1.000E-02      0.00    <-- DIS\n\
+             \x20Time to disentangle bands\n\
+             \x20+--------------------------------------------------------------------+<-- CONV\n\
+             \x20| Iter  Delta Spread     RMS Gradient      Spread (Ang^2)      Time  |<-- CONV\n\
+             \x20+--------------------------------------------------------------------+<-- CONV\n\
+             \x20     0     0.100E+01     0.0000000000       {spread:.8}     1.00  <-- CONV\n\
+             \x20Time for wannierise\n\
+             \x20All done: wannier90 exiting\n"
+        )
+    }
+
+    /// EPW appends each wannier90 invocation to the same `.wout`. Only the last
+    /// run may contribute data - otherwise the iteration series of several runs
+    /// get concatenated into one meaningless curve.
+    #[test]
+    fn only_the_last_run_is_parsed() {
+        let output = format!(
+            "{}{}{}{}",
+            banner("3.0.0", "11Jan2026 at 21:54:37"),
+            run_body(11.0, 11.5),
+            banner("3.1.0", "11Jan2026 at 22:51:51"),
+            run_body(22.0, 22.5),
+        );
+
+        let wm = parse_metrics(&output);
+        let db = wm.disentanglement_block.as_ref().expect("dis block");
+        assert_eq!(db.omega_i, vec![22.0], "earlier run leaked into Omega_I");
+        assert_eq!(
+            wm.spread_block.spread,
+            vec![22.5],
+            "earlier run leaked into spread"
+        );
+
+        // Run info must describe the current run, not the first one.
+        let ri = parse_run_info(&output);
+        assert_eq!(ri.executable.as_deref(), Some("Wannier90.x"));
+        assert_eq!(ri.version.as_deref(), Some("3.1.0"));
+        assert_eq!(ri.start_time.as_deref(), Some("11Jan2026 22:51:51"));
+    }
+
+    /// EPW's library mode prints "Resuming Wannier90" partway through a run,
+    /// after wannier_setup returns. That is a continuation, not a new run.
+    #[test]
+    fn resuming_line_does_not_split_a_run() {
+        let output = format!(
+            "{} Exiting wannier_setup in wannier90 21:52:20\n Resuming Wannier90 at 21:54:37\n{}",
+            banner("3.1.0", "11Jan2026 at 21:54:37"),
+            run_body(33.0, 33.5),
+        );
+
+        let wm = parse_metrics(&output);
+        assert_eq!(
+            wm.disentanglement_block
+                .as_ref()
+                .expect("dis block")
+                .omega_i,
+            vec![33.0],
+        );
+        assert_eq!(wm.spread_block.spread, vec![33.5]);
+    }
+
+    /// An aborted run still counts: it is the newest one, so the panels should
+    /// show it as empty rather than resurrecting the previous run's curves.
+    #[test]
+    fn aborted_last_run_yields_no_data() {
+        let output = format!(
+            "{}{}{} Exiting.......\n Unrecognised keyword(s) in input file\n",
+            banner("3.1.0", "11Jan2026 at 21:54:37"),
+            run_body(44.0, 44.5),
+            banner("3.1.0", "11Jan2026 at 22:00:00"),
+        );
+
+        let wm = parse_metrics(&output);
+        assert!(wm.disentanglement_block.is_none());
+        assert!(wm.spread_block.spread.is_empty());
+    }
+
+    /// A `.wout` that EPW appended to without re-printing the banner starts
+    /// straight at "Resuming Wannier90". It has no banner header at all, so the
+    /// resume line is both the run marker and the only run info available.
+    #[test]
+    fn banner_less_output_parses_from_the_resume_line() {
+        let output = format!(" Resuming Wannier90 at 01:11:28\n{}", run_body(55.0, 55.5));
+
+        let wm = parse_metrics(&output);
+        assert_eq!(wm.spread_block.spread, vec![55.5]);
+
+        let ri = parse_run_info(&output);
+        assert_eq!(ri.executable.as_deref(), Some("Wannier90.x"));
+        assert_eq!(ri.start_time.as_deref(), Some("01:11:28"));
+        assert_eq!(ri.version, None);
+    }
+
+    /// Without a banner to split on, the last resume line opens the current run.
+    #[test]
+    fn banner_less_output_uses_the_last_resume_line() {
+        let output = format!(
+            " Resuming Wannier90 at 01:11:28\n{} Resuming Wannier90 at 02:22:33\n{}",
+            run_body(66.0, 66.5),
+            run_body(77.0, 77.5),
+        );
+
+        let wm = parse_metrics(&output);
+        assert_eq!(wm.spread_block.spread, vec![77.5], "earlier run leaked in");
+        assert_eq!(
+            parse_run_info(&output).start_time.as_deref(),
+            Some("02:22:33"),
+        );
+    }
+
+    /// Text with neither marker is handed back untouched.
+    #[test]
+    fn output_without_any_marker_is_kept_whole() {
+        let output = run_body(88.0, 88.5);
+        assert_eq!(last_run(&output), output);
+    }
+
+    /// A banner run keeps reporting the banner's own timestamp, not the resume
+    /// line that follows it mid-run.
+    #[test]
+    fn banner_timestamp_wins_over_resume_line() {
+        let output = format!(
+            "{} Resuming Wannier90 at 23:59:59\n{}",
+            banner("3.1.0", "11Jan2026 at 21:54:37"),
+            run_body(99.0, 99.5),
+        );
+        let ri = parse_run_info(&output);
+        assert_eq!(ri.start_time.as_deref(), Some("11Jan2026 21:54:37"));
+    }
+
+    /// The slice starts at the banner title line rather than at the welcome line,
+    /// so parse_run_info still sees the "WANNIER90" that names the executable.
+    #[test]
+    fn slice_starts_at_the_banner_title() {
+        let output = format!(
+            "{}{}",
+            banner("3.1.0", "11Jan2026 at 21:54:37"),
+            run_body(1.0, 2.0)
+        );
+        let sliced = last_run(&output);
+        let first = sliced.lines().next().unwrap();
+        assert!(first.contains("WANNIER90"), "first line: {first:?}");
+        assert!(!first.contains(WANN_MARKER));
     }
 }
