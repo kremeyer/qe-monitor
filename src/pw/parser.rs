@@ -198,7 +198,6 @@ fn parse_metrics_scf(qe_output: &str) -> PwMetrics {
         if line.contains("End of self-consistent calculation") {
             if let Some(mut b) = open.take() {
                 // The last converged iteration has no "estimated scf accuracy"
-                // line, so cur_iter may be ahead of what's recorded in b.iteration.
                 if b.conv_iters.is_none() {
                     b.conv_iters = cur_iter;
                 }
@@ -215,8 +214,7 @@ fn parse_metrics_scf(qe_output: &str) -> PwMetrics {
         }
 
         // "convergence has been achieved in N iterations" appears after
-        // "End of self-consistent calculation" in pw.x, so handle it
-        // even when no block is open by updating the last pushed block.
+        // "End of self-consistent calculation"
         if let Some(n) = parse_scf_convergence_iterations(line) {
             if let Some(b) = open.as_mut() {
                 b.conv_iters = Some(n);
@@ -321,9 +319,9 @@ fn parse_metrics_nscf(qe_output: &str) -> PwMetrics {
     pm
 }
 
-// ============================
-// Helper functions for parsing
-// ============================
+// =========
+// helplings
+// =========
 
 pub fn cap_f64(re: &Regex, line: &str, idx: usize) -> Option<f64> {
     let caps = re.captures(line)?;

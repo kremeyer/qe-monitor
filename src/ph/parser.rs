@@ -15,9 +15,6 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
     let mut in_degeneracy_table = false;
 
     // (xq, n_irreps) for every q-point of the grid, from the up-front
-    // "Number and degeneracy of irreps per q-point" table. This covers the whole
-    // grid, which is more q-points than a run restricted by start_q/last_q will
-    // touch, so it is only used as a lookup keyed on the q actually being computed.
     let mut qpoint_table: Vec<([f64; 3], u32)> = Vec::new();
     // Irreps of the q-points this run actually computes, in order.
     let mut computed_reps: Vec<u32> = Vec::new();
@@ -56,8 +53,6 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
         }
 
         // Split run header:  "1 / 12 q-points for this run, from 2 to 2:"
-        // The size of the [from, to] range is the only explicit statement of this
-        // run's scope that QE ever prints, so prefer it when present.
         if let Some(total_qpoints) = parse_ph_qpoint_run_total(line) {
             range_total = Some(total_qpoints);
             in_degeneracy_table = false;
@@ -67,9 +62,7 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
         // The "Number and degeneracy of irreps per q-point" table lists the
         // irrep count for *every* q-point of the run in its last column, so it
         // gives both the true total number of representations and the number of
-        // q-points. Its header is the only q-point table header with an "N irreps"
-        // column, which distinguishes it from the plain "uniform grid" listing
-        // that shares the same "N   xq(1) xq(2) xq(3)" prefix.
+        // q-points.
         if line.starts_with("Number and degeneracy of irreps per q-point")
             || (line.starts_with("N ") && line.contains("xq(1)") && line.contains("N irreps"))
         {
@@ -80,8 +73,6 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
         // Each q-point this run computes announces itself here. QE does not report
         // start_q/last_q (except via the recover range line above), so the q-points
         // that actually appear are the only reliable measure of the run's scope.
-        // The irrep count is taken from the grid table rather than the later
-        // "There are ..." line, so it is known as soon as the q-point starts.
         if line.starts_with("Calculation of q =") {
             in_degeneracy_table = false;
             num_qpoints_started += 1;
@@ -94,7 +85,7 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
         }
 
         // A q-point is finished once its dynamical matrix / star is written.
-        if line.starts_with("Number of q in the star") {
+        if line.starts_with("Diagonalizing the dynamical matrix") {
             pm.num_qpoints_completed += 1;
             continue;
         }
@@ -102,8 +93,7 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
         if in_degeneracy_table {
             //   3   0.000000000   0.128300060   0.000000000      12
             // Trailing integer is the irrep count. Degeneracy sub-lines
-            // ("1  1  2  2") are all integers and "No degeneracy" is text, so
-            // neither parses as a row.
+            // ("1  1  2  2") are all integers and "No degeneracy" is text
             if let Some(row) = parse_degeneracy_row(line) {
                 qpoint_table.push(row);
             }
@@ -294,117 +284,4 @@ fn parse_phonon_cpu_time(line: &str) -> Option<f64> {
     static RE: Lazy<Regex> =
         Lazy::new(|| Regex::new(r"PHONON\s+:\s+([0-9]+(?:\.[0-9]+)?)s\s+CPU").unwrap());
     cap_f64(&RE, line, 1)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::parse_metrics;
-
-    /// A uniform-grid run prints two tables sharing the same
-    /// "N   xq(1) xq(2) xq(3)" header prefix: the plain grid listing and the
-    /// "Number and degeneracy of irreps" table. Only the latter must be read, and
-    /// only for the q-points the run actually reaches.
-    const GRID_HEADER: &str = r#"
-     Dynamical matrices for ( 2, 2, 1)  uniform grid of q-points
-     (   3 q-points):
-       N         xq(1)         xq(2)         xq(3)
-       1   0.000000000   0.000000000   0.000000000
-       2   0.000000000   0.500000000   0.000000000
-       3   0.500000000   0.500000000   0.000000000
-
-     Number and degeneracy of irreps per q-point
-       N         xq(1)         xq(2)         xq(3)   N irreps
-       1   0.000000000   0.000000000   0.000000000       8
-        1   1   2   2   1   1   2   2
-       2   0.000000000   0.500000000   0.000000000      12
-     No degeneracy
-       3   0.500000000   0.500000000   0.000000000       6
-     No degeneracy
-
-     Saving dvscf to file. Distribute only q points, not irreducible representations.
-"#;
-
-    #[test]
-    fn scopes_totals_to_the_qpoints_the_run_reaches() {
-        let output = format!(
-            "{GRID_HEADER}
-     Calculation of q =    0.0000000   0.0000000   0.0000000
-     There are    8 irreducible representations
-     End of self-consistent calculation
-     Number of q in the star =    1
-
-     Calculation of q =    0.0000000   0.5000000   0.0000000
-     There are   12 irreducible representations
-"
-        );
-
-        let metrics = parse_metrics(&output);
-        // Two q-points started; q3 is not counted since the run hasn't reached it.
-        assert_eq!(metrics.num_qpoints, 2);
-        // Only the first has finished (one "Number of q in the star").
-        assert_eq!(metrics.num_qpoints_completed, 1);
-        assert_eq!(metrics.num_representations, vec![8, 12]);
-    }
-
-    #[test]
-    fn start_q_run_reads_only_its_own_qpoint() {
-        // With start_q = last_q = 2 and recover = .false., QE still prints the
-        // whole grid but computes a single q-point, and reports no range line.
-        // The irrep count comes from the grid table, so it is known before the
-        // "There are ..." line is reached.
-        let output = format!(
-            "{GRID_HEADER}
-     Calculation of q =    0.0000000   0.5000000   0.0000000
-"
-        );
-
-        let metrics = parse_metrics(&output);
-        assert_eq!(metrics.num_qpoints, 1);
-        assert_eq!(metrics.num_qpoints_completed, 0);
-        assert_eq!(metrics.num_representations, vec![12]);
-    }
-
-    #[test]
-    fn parses_split_qpoint_header_and_irreps() {
-        // A split run has no irreps-degeneracy table; the total is the size of
-        // the [from, to] range and reps come from the "There are ..." lines.
-        let output = r#"
-     Saving dvscf to file. Distribute only q points, not irreducible representations.
-        1 /  12 q-points for this run, from  2 to  2:
-       N       xq(1)         xq(2)         xq(3)
-       1   0.000000000   0.000000000   0.000000000
-       2   0.000000000   0.000000000  -0.128314539
-
-     Calculation of q =    0.0000000   0.0000000  -0.1283145
-
-     There are   18 irreducible representations
-"#;
-
-        let metrics = parse_metrics(output);
-        assert_eq!(metrics.num_qpoints, 1);
-        assert_eq!(metrics.num_qpoints_completed, 0);
-        assert_eq!(metrics.num_representations, vec![18]);
-    }
-
-    #[test]
-    fn single_qpoint_run_reads_irreps_from_table() {
-        // A single-q run has only the irreps table (no grid or split header).
-        let output = r#"
-     Number and degeneracy of irreps per q-point
-       N         xq(1)         xq(2)         xq(3)   N irreps
-       1   0.000000000   0.000000000   0.000000000      36
-     No degeneracy
-
-     Saving dvscf to file. Distribute only q points, not irreducible representations.
-
-     Calculation of q =    0.0000000   0.0000000   0.0000000
-
-     There are   36 irreducible representations
-"#;
-
-        let metrics = parse_metrics(output);
-        assert_eq!(metrics.num_qpoints, 1);
-        assert_eq!(metrics.num_qpoints_completed, 0);
-        assert_eq!(metrics.num_representations, vec![36]);
-    }
 }

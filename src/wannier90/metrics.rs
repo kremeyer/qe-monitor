@@ -1,10 +1,6 @@
 use crate::ui::mean_std;
 
 /// Per-iteration wall times from a cumulative CPU-time series.
-///
-/// Wannier90 reports the elapsed time at each iteration, so the cost of one
-/// iteration is the gap between consecutive entries. Non-positive gaps are
-/// dropped: a restarted or recovered run can step backwards.
 fn iter_times(cpu_time: &[f64]) -> Vec<f64> {
     cpu_time
         .windows(2)
@@ -15,10 +11,6 @@ fn iter_times(cpu_time: &[f64]) -> Vec<f64> {
 
 /// Projected seconds still to run before `max_iters` is reached, paired with an
 /// uncertainty from the spread of the iterations seen so far.
-///
-/// This is an *upper bound*: a phase that meets its convergence threshold early
-/// stops well before `max_iters`. Returns `None` when there is nothing to
-/// extrapolate from - no timed iterations yet, or an unknown iteration limit.
 pub fn eta_seconds(iter_times: &[f64], done: usize, max_iters: u32) -> Option<(f64, f64)> {
     if iter_times.is_empty() || max_iters == 0 {
         return None;

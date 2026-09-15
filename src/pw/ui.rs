@@ -170,8 +170,7 @@ pub fn render_scf_summary(frame: &mut Frame, area: Rect, pw: &PwMetrics) {
     }
 }
 
-/// Build the full set of pw plots. Both main panels offer this same set, so the
-/// user can show any plot on the left (F-keys) and any on the right (numbers).
+/// Build the full set of pw plots.
 pub fn build_tabs(pm: &PwMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
     if pm.calc_type == PwCalcType::Nscf {
         return vec![("K-point Time", Box::new(KptTimeChart::new(pm)))];
@@ -218,7 +217,7 @@ pub fn build_tabs(pm: &PwMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
 // Chart types implementing Renderable
 // ========================================
 
-/// Energy delta chart with up/down coloring (▼ green, ▲ red).
+/// Energy delta chart with up/down coloring (v green, ^ red).
 struct EnergyDeltaChart {
     down_pts: Vec<(f64, f64)>,
     up_pts: Vec<(f64, f64)>,
@@ -487,8 +486,7 @@ fn compute_log_bounds<'a>(
     (x_min, x_max, y_min, y_max)
 }
 
-/// The SCF-accuracy convergence chart (last 3 SCF blocks), or an empty titled
-/// panel when there is no data yet.
+/// The SCF-accuracy convergence chart (last 3 SCF blocks)
 fn scf_accuracy_chart(pw: &PwMetrics) -> crate::ui::ChartOrEmpty {
     let scf_blocks = &pw.scf_blocks;
 

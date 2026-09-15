@@ -120,8 +120,7 @@ pub fn render_phonon_summary(frame: &mut Frame, area: Rect, pm: &PhMetrics) {
     frame.render_widget(Paragraph::new(lines).block(block), area);
 }
 
-/// Build the full set of ph plots. Both main panels offer this same set, so the
-/// user can show any plot on the left (F-keys) and any on the right (numbers).
+/// Build the full set of ph plots
 pub fn build_tabs(pm: &PhMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
     vec![
         (
@@ -133,8 +132,7 @@ pub fn build_tabs(pm: &PhMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
     ]
 }
 
-/// The SCF-accuracy convergence chart (last 3 representation blocks), or an empty
-/// titled panel when there is no data yet.
+/// The SCF-accuracy convergence chart (last 3 representation blocks)
 fn scf_accuracy_chart(ph: &PhMetrics) -> crate::ui::ChartOrEmpty {
     let representation_blocks = &ph.representation_blocks;
 

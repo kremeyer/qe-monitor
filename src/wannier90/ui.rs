@@ -56,16 +56,11 @@ pub fn render_summary(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
     let eta_w = crate::wannier90::eta_seconds(&w_iter_times, n_w, max_w);
     let eta_d = crate::wannier90::eta_seconds(&d_iter_times, n_d, max_d);
 
-    // While disentanglement is still the only phase with timings, report its own
-    // ETA rather than nothing at all - but flag that wannierisation still follows,
-    // so the number is not mistaken for the time left in the whole run.
     let (eta, pending_wann) = match (eta_w, eta_d) {
         (None, Some(d)) if wm.has_disentanglement => (Some(d), true),
         (w, _) => (w, false),
     };
 
-    // The two per-iteration lines share a unit so the phases stay comparable; the
-    // ETA gets its own, since it is orders of magnitude larger.
     let slowest_iter = d_iter_times
         .iter()
         .chain(w_iter_times.iter())
@@ -170,11 +165,7 @@ impl Renderable for WfSpreadBarChart {
     }
 }
 
-/// Build the full set of wannier90 plots. Both main panels offer this same set,
-/// so the user can show any plot on the left (F-keys) and any on the right (numbers).
-///
-/// With disentanglement: Disent. abs / Disent. Δ / Spread abs / Spread Δ / WF spreads.
-/// Without disentanglement, the two disentanglement tabs are omitted.
+/// Build the full set of wannier90 plots.
 pub fn build_tabs(wm: &WannierMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
     let mut tabs: Vec<(&'static str, Box<dyn Renderable>)> = Vec::new();
 

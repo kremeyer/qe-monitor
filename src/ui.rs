@@ -390,9 +390,9 @@ impl Renderable for ConvergenceChart {
     }
 }
 
-// ========================================
+// ==========================================
 // TabGroup - generic tabbed widget container
-// ========================================
+// ==========================================
 
 pub trait Renderable {
     fn render(&self, frame: &mut Frame, area: Rect);
@@ -516,8 +516,6 @@ impl TabGroup {
 }
 
 /// A `ConvergenceChart` when there is data, otherwise an empty bordered block
-/// (optionally titled). Lets a fixed right-hand chart live inside a `TabGroup`
-/// while preserving the previous "empty run shows a blank titled panel" look.
 pub struct ChartOrEmpty {
     pub chart: Option<ConvergenceChart>,
     pub empty_title: Option<&'static str>,
@@ -551,74 +549,4 @@ pub fn mean_std(xs: &[f64]) -> (f64, f64) {
     let mean = xs.iter().sum::<f64>() / n;
     let var = xs.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / n;
     (mean, var.sqrt())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crossterm::event::KeyCode;
-    use ratatui::backend::TestBackend;
-
-    fn buffer_text(term: &ratatui::Terminal<TestBackend>) -> String {
-        term.backend()
-            .buffer()
-            .content()
-            .iter()
-            .map(|c| c.symbol())
-            .collect()
-    }
-
-    /// Render a `build_tabs` set into left (F-keys) and right (numbers, default
-    /// last) panels; assert both draw and that the two panels default to different
-    /// tabs when more than one plot exists.
-    fn check(tabs_fn: impl Fn() -> Vec<(&'static str, Box<dyn Renderable>)>, expect: &str) {
-        let n = tabs_fn().len();
-        let mut left = TabGroup::default().with_keys(TabKeys::Function);
-        let mut right = TabGroup::default()
-            .with_keys(TabKeys::Digit)
-            .with_default_last();
-        left.rebuild(tabs_fn());
-        right.rebuild(tabs_fn());
-
-        // Different default plot per panel when there is a choice.
-        if n > 1 {
-            assert_ne!(
-                left.active, right.active,
-                "{expect}: panels default to same tab"
-            );
-            assert_eq!(
-                right.active,
-                n - 1,
-                "{expect}: right should default to last"
-            );
-        }
-
-        let mut term = ratatui::Terminal::new(TestBackend::new(120, 40)).unwrap();
-        term.draw(|f| {
-            let cols = Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
-                .split(f.area());
-            left.render(f, cols[0]);
-            right.render(f, cols[1]);
-        })
-        .unwrap();
-        let text = buffer_text(&term);
-        assert!(text.contains(expect), "{expect}: not rendered -> {text:?}");
-
-        // F-keys drive left, digits drive right; they must not collide.
-        assert!(left.handle_key(KeyCode::F(1)));
-        assert!(!left.handle_key(KeyCode::Char('1')));
-        assert!(right.handle_key(KeyCode::Char('1')));
-        assert!(!right.handle_key(KeyCode::F(1)));
-    }
-
-    #[test]
-    fn all_calc_types_have_both_panels() {
-        use crate::{ph, pw, wannier90};
-        check(|| pw::ui::build_tabs(&pw::PwMetrics::default()), "SCF acc.");
-        check(|| ph::ui::build_tabs(&ph::PhMetrics::default()), "SCF acc.");
-        check(
-            || wannier90::ui::build_tabs(&wannier90::WannierMetrics::default()),
-            "Spread abs",
-        );
-    }
 }

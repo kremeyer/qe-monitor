@@ -16,5 +16,7 @@ Cargo.lock
 
 *.out
 *.wout
+# ...but the test fixtures are real QE/wannier90 output and must be tracked
+!tests/fixtures/**
 .vscode
 .DS_Store
