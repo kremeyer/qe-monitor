@@ -83,20 +83,34 @@ pub fn render_scf_summary(frame: &mut Frame, area: Rect, pw: &PwMetrics) {
             let kpts_left = (total_kpts.saturating_sub(completed)) as f64;
             let est_time_left_error = std_per_kpt * kpts_left;
 
+            // With `pw.x -nk`, the progress lines count only this pool's share
+            // of the k-points. The pools run concurrently, so scaling by the
+            // pool count gives the whole job's progress. The real total comes
+            // from the header, and the scaled figure is clamped to it because
+            // the pools may not hold equal shares.
+            let npool = pw.npool.unwrap_or(1);
+            let kpts_all = pw
+                .num_kpts_total
+                .unwrap_or_else(|| total_kpts.saturating_mul(npool));
+            let completed_all = completed.saturating_mul(npool).min(kpts_all);
+
             let mut lines = Vec::new();
             lines.push(Line::from(format!(
-                "kpts:          {}/{}",
-                completed, total_kpts
+                "kpts:           {}/{}",
+                completed_all, kpts_all
             )));
+            if npool > 1 {
+                lines.push(Line::from(format!("pools:          {}", npool)));
+            }
             lines.push(Line::from(crate::ui::stats_line(
-                &format!("time/kpt [{}]: ", time_unit),
+                &format!("time/kpt/p [{}]:", time_unit),
                 &kpt_durations_scaled,
                 2,
             )));
 
             if est_time_left.is_finite() {
                 lines.push(Line::from(format!(
-                    "time left [{}]: {:.2} ± {:.2}",
+                    "time left [{}]:  {:.2} ± {:.2}",
                     time_unit, est_time_left_scaled, est_time_left_error
                 )));
             }

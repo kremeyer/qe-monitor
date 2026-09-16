@@ -282,6 +282,21 @@ fn parse_metrics_nscf(qe_output: &str) -> PwMetrics {
     for raw in qe_output.lines() {
         let line = raw.trim_start();
 
+        // Header: how the k-points are split, and how many there are in total.
+        // The progress lines below only ever count this pool's share.
+        if pm.npool.is_none()
+            && let Some(n) = parse_npool(line)
+        {
+            pm.npool = Some(n);
+            continue;
+        }
+        if pm.num_kpts_total.is_none()
+            && let Some(n) = parse_num_kpts_total(line)
+        {
+            pm.num_kpts_total = Some(n);
+            continue;
+        }
+
         // Detect band structure calculation start
         if line.contains("Band Structure Calculation") {
             band_block = Some(BandBlock::default());
@@ -403,6 +418,17 @@ fn parse_ion_dyn_cell_gradient_error(line: &str) -> Option<f64> {
             .unwrap()
     });
     cap_f64(&RE, line, 1)
+}
+
+fn parse_npool(line: &str) -> Option<u32> {
+    static RE: Lazy<Regex> =
+        Lazy::new(|| Regex::new(r"K-points division:\s*npool\s*=\s*(\d+)").unwrap());
+    cap_u32(&RE, line, 1)
+}
+
+fn parse_num_kpts_total(line: &str) -> Option<u32> {
+    static RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"number of k points\s*=\s*(\d+)").unwrap());
+    cap_u32(&RE, line, 1)
 }
 
 fn parse_band_kpt_progress(line: &str) -> Option<(u32, u32)> {
