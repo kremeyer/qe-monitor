@@ -171,6 +171,7 @@ fn parse_metrics_scf(qe_output: &str) -> PwMetrics {
                     b.cpu_time_first = Some(t);
                 }
                 b.cpu_time_last = Some(t);
+                b.cpu_time.push(t);
             }
             continue;
         }

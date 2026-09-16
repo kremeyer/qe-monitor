@@ -1,11 +1,10 @@
 use crate::ui::mean_std;
 
-/// Per-iteration wall times from a cumulative CPU-time series.
 fn iter_times(cpu_time: &[f64]) -> Vec<f64> {
     cpu_time
         .windows(2)
         .map(|w| w[1] - w[0])
-        .filter(|&dt| dt.is_finite() && dt > 0.0)
+        .filter(|&dt| dt.is_finite() && dt >= 0.0)
         .collect()
 }
 

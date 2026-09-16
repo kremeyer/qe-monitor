@@ -1,4 +1,12 @@
-/// PWSCF-specific metrics
+//! PWSCF-specific metrics
+
+fn iter_times(cpu_time: &[f64]) -> Vec<f64> {
+    cpu_time
+        .windows(2)
+        .map(|w| w[1] - w[0])
+        .filter(|&dt| dt.is_finite() && dt >= 0.0)
+        .collect()
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum PwCalcType {
@@ -11,6 +19,7 @@ pub enum PwCalcType {
 pub struct ScfBlock {
     pub iteration: Vec<u32>,
     pub accuracy: Vec<f64>,
+    pub cpu_time: Vec<f64>, // cumulative CPU time at each iteration
 
     pub conv_iters: Option<u32>, // number of iterations until convergence
     pub cpu_time_first: Option<f64>, // CPU time at first iteration
@@ -30,10 +39,23 @@ impl ScfBlock {
         }
     }
 
+    /// Mean wall time of one SCF iteration.
+    ///
+    /// Averages the gaps between consecutive timings. The first timing lands
+    /// *after* the first iteration, so the span covers one interval fewer than
+    /// there are iterations - dividing by the iteration count would
+    /// under-report what an iteration costs.
     pub fn time_per_iteration(&self) -> Option<f64> {
-        let dt = self.time_per_calculation()?;
-        let iters = self.iterations_to_converge()? as f64;
-        if iters > 0.0 { Some(dt / iters) } else { None }
+        let gaps = self.iter_times();
+        if gaps.is_empty() {
+            return None;
+        }
+        Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
+    }
+
+    /// Per-iteration wall times, from the cumulative series.
+    pub fn iter_times(&self) -> Vec<f64> {
+        iter_times(&self.cpu_time)
     }
 }
 
@@ -55,10 +77,22 @@ impl BandBlock {
         }
     }
 
+    /// Mean wall time of one k-point.
+    ///
+    /// Averages the gaps between consecutive timings rather than dividing by
+    /// the k-point count: the first timing lands after k-point 1, and the
+    /// k-point currently being worked on has no timing yet.
     pub fn time_per_iteration(&self) -> Option<f64> {
-        let dt = self.time_per_calculation()?;
-        let kpts = self.kpt_number.len() as f64;
-        if kpts > 0.0 { Some(dt / kpts) } else { None }
+        let gaps = self.iter_times();
+        if gaps.is_empty() {
+            return None;
+        }
+        Some(gaps.iter().sum::<f64>() / gaps.len() as f64)
+    }
+
+    /// Per-k-point wall times, from the cumulative series.
+    pub fn iter_times(&self) -> Vec<f64> {
+        iter_times(&self.cpu_time)
     }
 }
 
