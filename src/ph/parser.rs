@@ -12,7 +12,20 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
     let mut pm = PhMetrics::default();
 
     // for header before calculation
-    let mut in_qpoint_list = false;
+    let mut in_degeneracy_table = false;
+
+    // (xq, n_irreps) for every q-point of the grid, from the up-front
+    let mut qpoint_table: Vec<([f64; 3], u32)> = Vec::new();
+    // Irreps of the q-points this run actually computes, in order.
+    let mut computed_reps: Vec<u32> = Vec::new();
+    // Fallback per-q irreps, from the "There are N irreducible representations"
+    // lines that appear only as each q-point is reached (used when no table exists,
+    // e.g. split runs).
+    let mut there_are_reps: Vec<u32> = Vec::new();
+    // Number of q-points this run has started, and the explicit run range when
+    // QE reports one (it only does so with recover = .true.).
+    let mut num_qpoints_started: u32 = 0;
+    let mut range_total: Option<u32> = None;
 
     // for representation-level block
     let mut open_repr_block: Option<RepresentationBlock> = None;
@@ -39,38 +52,51 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
             continue;
         }
 
-        // header before calculation
-        if line.starts_with("N         xq(1)         xq(2)         xq(3)   N irreps") {
-            in_qpoint_list = true;
-            pm.num_qpoints = 0;
-            pm.num_representations.clear();
+        // Split run header:  "1 / 12 q-points for this run, from 2 to 2:"
+        if let Some(total_qpoints) = parse_ph_qpoint_run_total(line) {
+            range_total = Some(total_qpoints);
+            in_degeneracy_table = false;
             continue;
         }
 
-        if in_qpoint_list {
-            if line.starts_with("Calculation of q =") {
-                in_qpoint_list = false;
-                continue;
-            }
-            // Q-point/irreps data lines look like:
-            //   1   0.000000000   0.000000000   0.000000000       4
-            // They start with a digit and contain decimal points (the xq coords).
-            // Degeneracy lines like "1   2   1   2" are all integers (no dots).
-            if line.bytes().next().is_some_and(|b| b.is_ascii_digit())
-                && line.contains('.')
-                && let Some(n_irreps) = line
-                    .split_whitespace()
-                    .last()
-                    .and_then(|s| s.parse::<u32>().ok())
+        // The "Number and degeneracy of irreps per q-point" table lists the
+        // irrep count for *every* q-point of the run in its last column, so it
+        // gives both the true total number of representations and the number of
+        // q-points.
+        if line.starts_with("Number and degeneracy of irreps per q-point")
+            || (line.starts_with("N ") && line.contains("xq(1)") && line.contains("N irreps"))
+        {
+            in_degeneracy_table = true;
+            continue;
+        }
+
+        // Each q-point this run computes announces itself here. QE does not report
+        // start_q/last_q (except via the recover range line above), so the q-points
+        // that actually appear are the only reliable measure of the run's scope.
+        if line.starts_with("Calculation of q =") {
+            in_degeneracy_table = false;
+            num_qpoints_started += 1;
+            if let Some(xq) = parse_calculation_of_q(line)
+                && let Some(n_irreps) = lookup_irreps(&qpoint_table, xq)
             {
-                pm.num_qpoints += 1;
-                pm.num_representations.push(n_irreps);
+                computed_reps.push(n_irreps);
             }
             continue;
         }
 
-        if line.starts_with("Number of q in the star") {
+        // A q-point is finished once its dynamical matrix / star is written.
+        if line.starts_with("Diagonalizing the dynamical matrix") {
             pm.num_qpoints_completed += 1;
+            continue;
+        }
+
+        if in_degeneracy_table {
+            //   3   0.000000000   0.128300060   0.000000000      12
+            // Trailing integer is the irrep count. Degeneracy sub-lines
+            // ("1  1  2  2") are all integers and "No degeneracy" is text
+            if let Some(row) = parse_degeneracy_row(line) {
+                qpoint_table.push(row);
+            }
             continue;
         }
 
@@ -136,6 +162,11 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
             cur_iter = None;
             continue;
         }
+
+        if let Some(n_irreps) = parse_ph_irreps_count(line) {
+            there_are_reps.push(n_irreps);
+            continue;
+        }
     }
 
     if let Some(mut b) = open_repr_block.take() {
@@ -158,6 +189,17 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
         }
     }
 
+    // Scope the totals to the q-points this run actually touches. Irreps looked up
+    // in the grid table are preferred (they are known as soon as a q-point starts);
+    // the per-q "There are ..." lines are the fallback when no table was printed,
+    // as in a recover run.
+    pm.num_representations = if !computed_reps.is_empty() {
+        computed_reps
+    } else {
+        there_are_reps
+    };
+    pm.num_qpoints = range_total.unwrap_or(0).max(num_qpoints_started);
+
     pm
 }
 
@@ -176,6 +218,66 @@ fn parse_ph_ddv_scf2(line: &str) -> Option<f64> {
         Regex::new(r"\|ddv_scf\|\^2\s*=\s*([+-]?(?:\d+\.?\d*|\.\d+)(?:[EeDd][+-]?\d+)?)").unwrap()
     });
     cap_f64(&RE, line, 1)
+}
+
+/// The q of a "Calculation of q =    0.2213199  -0.3854415   0.1245717" line.
+fn parse_calculation_of_q(line: &str) -> Option<[f64; 3]> {
+    let mut fields = line.strip_prefix("Calculation of q =")?.split_whitespace();
+    let mut xq = [0.0f64; 3];
+    for c in xq.iter_mut() {
+        *c = fields.next()?.parse().ok()?;
+    }
+    Some(xq)
+}
+
+/// Irrep count of the grid q-point matching `xq`. "Calculation of q" prints 7
+/// decimals against the table's 9, so the comparison needs rounding slack.
+fn lookup_irreps(table: &[([f64; 3], u32)], xq: [f64; 3]) -> Option<u32> {
+    const TOL: f64 = 1e-6;
+    table
+        .iter()
+        .find(|(q, _)| q.iter().zip(xq.iter()).all(|(a, b)| (a - b).abs() < TOL))
+        .map(|&(_, n_irreps)| n_irreps)
+}
+
+/// A row of the "Number and degeneracy of irreps per q-point" table:
+///   3   0.000000000   0.128300060   0.000000000      12
+/// Returns the q coordinates and the trailing irrep count (12 here). Degeneracy
+/// sub-lines (all integers) and "No degeneracy" text lines yield None.
+fn parse_degeneracy_row(line: &str) -> Option<([f64; 3], u32)> {
+    let mut fields = line.split_whitespace();
+    let _n: u32 = fields.next()?.parse().ok()?;
+    let mut xq = [0.0f64; 3];
+    for c in xq.iter_mut() {
+        let field = fields.next()?;
+        if !field.contains('.') {
+            return None;
+        }
+        *c = field.parse().ok()?;
+    }
+    let n_irreps = fields.next()?.parse::<u32>().ok()?;
+    Some((xq, n_irreps))
+}
+
+fn parse_ph_qpoint_run_total(line: &str) -> Option<u32> {
+    static RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(
+            r"(?i)(\d+)\s*/\s*(\d+)\s+q-points\s+for\s+this\s+run,\s+from\s+(\d+)\s+to\s+(\d+)",
+        )
+        .unwrap()
+    });
+
+    let from = cap_u32(&RE, line, 3)?;
+    let to = cap_u32(&RE, line, 4)?;
+    Some(to.saturating_sub(from).saturating_add(1))
+}
+
+fn parse_ph_irreps_count(line: &str) -> Option<u32> {
+    static RE: Lazy<Regex> = Lazy::new(|| {
+        Regex::new(r"(?i)There\s+are\s+(\d+)\s+irreducible\s+representations").unwrap()
+    });
+
+    cap_u32(&RE, line, 1)
 }
 
 fn parse_phonon_cpu_time(line: &str) -> Option<f64> {

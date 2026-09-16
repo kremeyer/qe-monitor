@@ -1,27 +1,12 @@
 use std::{env, io, path::PathBuf};
 
-mod app;
-mod ph;
-mod pw;
-mod ui;
-mod wannier90;
-
-use app::App;
 use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
 
-const QE_MARKER: &str = "This program is part of the open-source Quantum ESPRESSO suite";
-const WANN_MARKER: &str = "Welcome to the Maximally-Localized";
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum CalcType {
-    Pw,
-    Ph,
-    Wannier90,
-}
+use qe_monitor::{QE_MARKER, app::App, detect_calc_type, is_wannier90};
 
 fn main() -> io::Result<()> {
     let logfile = env::args().nth(1).map(PathBuf::from).unwrap_or_else(|| {
@@ -45,7 +30,7 @@ fn main() -> io::Result<()> {
 
     // check that we have a QE output file
     let qe_output = std::fs::read_to_string(&logfile)?;
-    if !qe_output.contains(QE_MARKER) && !qe_output.contains(WANN_MARKER) {
+    if !qe_output.contains(QE_MARKER) && !is_wannier90(&qe_output) {
         eprintln!(
             "Error: {} does not appear to be a QE/Wannier90 output file",
             logfile.display()
@@ -76,18 +61,4 @@ fn main() -> io::Result<()> {
     terminal.show_cursor()?;
 
     res
-}
-
-fn detect_calc_type(content: &str) -> Option<CalcType> {
-    if content.contains("Program PWSCF v.") {
-        Some(CalcType::Pw)
-    } else if content.contains("Program PHONON v.") {
-        Some(CalcType::Ph)
-    } else if content.contains("WANNIER90")
-        && content.contains("Welcome to the Maximally-Localized")
-    {
-        Some(CalcType::Wannier90)
-    } else {
-        None
-    }
 }

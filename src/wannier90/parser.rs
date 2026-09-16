@@ -1,13 +1,50 @@
 use crate::app::RunInfo;
 use crate::wannier90::{DisentanglementBlock, WannierMetrics};
+use crate::{WANN_MARKER, WANN_RESUME_MARKER};
+
+const WANN_BANNER_TITLE: &str = "WANNIER90";
+
+/// how far above the welcome line the banner title may sit for us to still count
+const BANNER_LOOKBEHIND: usize = 512;
+
+/// Restrict `output` to the most recent wannier90 run.
+///
+/// EPW drives wannier90 in library mode and appends to an existing `.wout`, so
+/// one file can hold several runs back to back.
+fn last_run(output: &str) -> &str {
+    let Some(welcome) = output.rfind(WANN_MARKER) else {
+        return match output.rfind(WANN_RESUME_MARKER) {
+            Some(resume) => &output[line_start(output, resume)..],
+            None => output,
+        };
+    };
+    let welcome_line = line_start(output, welcome);
+
+    // Back up to the banner title so parse_run_info still sees it.
+    let start = output[..welcome_line]
+        .rfind(WANN_BANNER_TITLE)
+        .filter(|&title| welcome_line - title <= BANNER_LOOKBEHIND)
+        .map(|title| line_start(output, title))
+        .unwrap_or(welcome_line);
+
+    &output[start..]
+}
+
+/// Byte offset of the start of the line containing `pos`.
+fn line_start(s: &str, pos: usize) -> usize {
+    s[..pos].rfind('\n').map(|i| i + 1).unwrap_or(0)
+}
 
 pub fn parse_run_info(wannier90_output: &str) -> RunInfo {
     let mut run_info = RunInfo::default();
+    let wannier90_output = last_run(wannier90_output);
 
     for raw in wannier90_output.lines().take(100) {
         let line = raw.trim_start();
 
-        if run_info.executable.is_none() && line.contains("WANNIER90") {
+        if run_info.executable.is_none()
+            && (line.contains(WANN_BANNER_TITLE) || line.contains(WANN_RESUME_MARKER))
+        {
             run_info.executable = Some("Wannier90.x".to_string());
         }
 
@@ -31,6 +68,20 @@ pub fn parse_run_info(wannier90_output: &str) -> RunInfo {
             run_info.start_time = Some(after);
         }
 
+        // A banner-less run has no "Execution started on" line; its resume line
+        // carries the only timestamp. Checked second so the banner still wins.
+        if run_info.start_time.is_none()
+            && let Some(pos) = line.find(WANN_RESUME_MARKER)
+        {
+            let after = line[(pos + WANN_RESUME_MARKER.len())..]
+                .trim()
+                .trim_start_matches("at")
+                .trim();
+            if !after.is_empty() {
+                run_info.start_time = Some(after.to_string());
+            }
+        }
+
         if run_info.mpi_ranks.is_none() {
             if line.contains("Running in serial") {
                 run_info.mpi_ranks = Some("1".to_string());
@@ -42,7 +93,7 @@ pub fn parse_run_info(wannier90_output: &str) -> RunInfo {
             }
         }
 
-        // All header fields filled — no need to scan further
+        // All header fields filled - no need to scan further
         if run_info.executable.is_some()
             && run_info.version.is_some()
             && run_info.start_time.is_some()
@@ -59,6 +110,7 @@ pub fn parse_run_info(wannier90_output: &str) -> RunInfo {
 }
 
 pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
+    let wannier90_output = last_run(wannier90_output);
     let mut wm = WannierMetrics::default();
     let mut in_disentanglement_block: bool = false;
     let mut in_wannierization_block: bool = false;
@@ -66,9 +118,31 @@ pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
     let mut in_disentangle_section: bool = false;
     wm.wannierize_conv_threshold = -1.0;
     let mut conv_buffer_value = 0.0;
+    let mut wf_accum: Vec<f64> = Vec::new();
 
     for raw in wannier90_output.lines() {
         let line = raw.trim_start();
+
+        // Per-Wannier-function spreads. Blocks appear each iteration and in the
+        // final state; markers are unambiguous, so scan unconditionally and keep
+        // the last complete block (the final state naturally wins when finished).
+        if line.contains("WF centre and spread") {
+            let mut fields = line.split_whitespace();
+            // "WF centre and spread   <N>   ( x, y, z )   <spread>"
+            let index = fields.nth(4).and_then(|s| s.parse::<u32>().ok());
+            let spread = line
+                .split_whitespace()
+                .last()
+                .and_then(|s| s.parse::<f64>().ok());
+            if let Some(s) = spread {
+                if index == Some(1) {
+                    wf_accum.clear();
+                }
+                wf_accum.push(s);
+            }
+        } else if line.contains("Sum of centres and spreads") && !wf_accum.is_empty() {
+            wm.spread_block.wf_spreads_last = wf_accum.clone();
+        }
 
         // Track WANNIERISE / DISENTANGLE header sections to parse max iterations
         if line.starts_with('*') && line.ends_with('*') {
@@ -144,14 +218,17 @@ pub fn parse_metrics(wannier90_output: &str) -> WannierMetrics {
 
         if in_disentanglement_block {
             if line.contains("<-- DIS") && !line.contains("Iter") && !line.contains("+---") {
-                let mut parts = line.split_whitespace();
-                if let (Some(delta), Some(time)) = (
-                    parts.nth(3).and_then(|s| s.parse::<f64>().ok()),
-                    parts.next().and_then(|s| s.parse::<f64>().ok()),
+                // Row: Iter  Omega_I(i-1)  Omega_I(i)  Delta(frac.)  Time  <-- DIS
+                let fields: Vec<&str> = line.split_whitespace().collect();
+                if let (Some(omega_i), Some(delta), Some(time)) = (
+                    fields.get(2).and_then(|s| s.parse::<f64>().ok()),
+                    fields.get(3).and_then(|s| s.parse::<f64>().ok()),
+                    fields.get(4).and_then(|s| s.parse::<f64>().ok()),
                 ) {
                     let block = wm
                         .disentanglement_block
                         .get_or_insert_with(DisentanglementBlock::default);
+                    block.omega_i.push(omega_i);
                     block.delta_omega_i.push(delta);
                     block.cpu_time.push(time);
                 }

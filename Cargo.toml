@@ -1,7 +1,17 @@
 [package]
 name = "qe-monitor"
-version = "0.3.0"
+version = "1.0.0"
+authors = ["Laurenz Kremeyer"]
 edition = "2024"
+rust-version = "1.88"
+description = "TUI monitor for Quantum ESPRESSO and Wannier90 calculations"
+license = "BSD-3-Clause"
+repository = "https://github.com/kremeyer/qe-monitor"
+readme = "README.md"
+keywords = ["quantum-espresso", "wannier90", "dft", "tui", "monitoring"]
+categories = ["command-line-utilities", "science"]
+# the demo GIF and the test fixtures are not needed to build the binary
+exclude = ["docs/", "tests/"]
 
 [dependencies]
 chrono = "0.4"
@@ -9,3 +19,8 @@ crossterm = "0.29"
 once_cell = "1.20"
 ratatui = { version = "0.30", features = ["crossterm_0_29"] }
 regex = "1.12"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
