@@ -1,6 +1,6 @@
 # qe-monitor
 
-A TUI application for monitoring Quantum Espresso and Wannier90 output files in real time. It only relies on the output file and is especially useful to use on remote servers and clusters where using window forwarding can be slow and cumbersome. It is written in Rust and uses Ratatui.
+A TUI application for monitoring Quantum Espresso and Wannier90 output files in real time. It only relies on the output file and is especially useful to use on remote servers and clusters where using window forwarding can be slow and cumbersome. It is written in Rust and uses [Ratatui](https://ratatui.rs/).
 
 ![qe-monitor following a vc-relax run](docs/demo.gif)
 
