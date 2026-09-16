@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.1 - 2026-09-16
+
+### Fixed
+- nscf runs using k-point pools (`pw.x -nk`) reported the per-pool k-point count as
+  though it were the whole calculation. Pools and total k-points are now correctly reported.
+
 ## 1.0.0 - 2026-09-16
 
 ### Added

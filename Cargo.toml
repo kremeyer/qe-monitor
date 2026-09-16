@@ -1,6 +1,6 @@
 [package]
 name = "qe-monitor"
-version = "1.0.0"
+version = "1.0.1"
 authors = ["Laurenz Kremeyer"]
 edition = "2024"
 rust-version = "1.88"
