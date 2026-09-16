@@ -104,6 +104,9 @@ pub struct PwMetrics {
     pub pressure: Vec<f64>,
     pub scf_blocks: Vec<ScfBlock>,
     pub band_blocks: Vec<BandBlock>,
+    /// Number of k-point pools (`pw.x -nk`). `None` or 1 means no pooling.
+    pub npool: Option<u32>,
+    pub num_kpts_total: Option<u32>,
     pub scf_conv_thr: Option<f64>,
     pub etot_conv_thr: Option<f64>,
     pub forc_conv_thr: Option<f64>,

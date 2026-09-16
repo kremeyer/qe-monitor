@@ -182,3 +182,16 @@ fn detects_convergence_thresholds() {
     assert_eq!(metrics.forc_conv_thr, None, "{name}");
     assert_eq!(metrics.press_conv_thr, None, "{name}");
 }
+
+#[test]
+fn detects_npool() {
+    let name = "pw/nscf_bands.out";
+    let out = fixture(name);
+    let metrics = pw::parse_metrics(&out);
+    assert_eq!(metrics.npool, None, "{name}");
+
+    let name = "own/nscf_pools.out";
+    let out = fixture(name);
+    let metrics = pw::parse_metrics(&out);
+    assert_eq!(metrics.npool, Some(12), "{name}");
+}
