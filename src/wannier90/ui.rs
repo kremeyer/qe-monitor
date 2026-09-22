@@ -56,8 +56,9 @@ pub fn render_summary(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
     let eta_w = crate::wannier90::eta_seconds(&w_iter_times, n_w, max_w);
     let eta_d = crate::wannier90::eta_seconds(&d_iter_times, n_d, max_d);
 
+    let wannierise_pending = wm.wannierize_max_iterations.is_none_or(|n| n > 0);
     let (eta, pending_wann) = match (eta_w, eta_d) {
-        (None, Some(d)) if wm.has_disentanglement => (Some(d), true),
+        (None, Some(d)) if wm.has_disentanglement => (Some(d), wannierise_pending),
         (w, _) => (w, false),
     };
 
@@ -72,10 +73,9 @@ pub fn render_summary(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
     let scaled = |xs: &[f64]| -> Vec<f64> { xs.iter().map(|&v| v / it_div).collect() };
 
     if wm.has_disentanglement {
-        let max_d_str = if max_d > 0 {
-            format!("{}", max_d)
-        } else {
-            "?".to_string()
+        let max_d_str = match wm.dis_max_iterations {
+            Some(n) => n.to_string(),
+            None => "?".to_string(),
         };
         let conv_suffix = match wm.disentanglement_converged {
             Some(true) => " conv",
@@ -93,10 +93,9 @@ pub fn render_summary(frame: &mut Frame, area: Rect, wm: &WannierMetrics) {
         )));
     }
 
-    let max_w_str = if max_w > 0 {
-        format!("{}", max_w)
-    } else {
-        "?".to_string()
+    let max_w_str = match wm.wannierize_max_iterations {
+        Some(n) => n.to_string(),
+        None => "?".to_string(),
     };
     lines.push(Line::from(format!("wann.iter:     {}/{}", n_w, max_w_str)));
     lines.push(Line::from(crate::ui::stats_line(
