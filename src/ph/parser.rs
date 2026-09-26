@@ -29,6 +29,10 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
 
     // for representation-level block
     let mut open_repr_block: Option<RepresentationBlock> = None;
+    // Clock reading when the current representation started. Its own timings only
+    // begin after the first iteration, so without this anchor a representation
+    // that converges in one iteration would appear to take no time at all.
+    let mut block_start: Option<f64> = None;
     let mut cur_iter: Option<u32> = None;
     let mut pending_cpu_time: Option<f64> = None;
 
@@ -115,6 +119,7 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
             // open new block
             let b = RepresentationBlock::default();
             open_repr_block = Some(b);
+            block_start = pending_cpu_time;
             cur_iter = None;
             continue;
         }
@@ -124,7 +129,14 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
                 cur_iter = Some(iter);
                 pending_cpu_time = Some(t);
                 if let Some(b) = open_repr_block.as_mut() {
-                    b.cpu_time_first.get_or_insert(t);
+                    if b.cpu_time.is_empty()
+                        && let Some(start) = block_start
+                        && start <= t
+                    {
+                        b.cpu_time.push(start);
+                    }
+                    b.cpu_time_first
+                        .get_or_insert(*b.cpu_time.first().unwrap_or(&t));
                     b.cpu_time_last = Some(t);
                     b.cpu_time.push(t);
                 }

@@ -169,3 +169,26 @@ fn recover_range_wins_over_the_grid() {
         assert_eq!(metrics.num_qpoints, 1, "{name}");
     }
 }
+
+#[test]
+fn single_iteration_representation_has_a_nonzero_duration() {
+    // A representation's own timings start only after its first iteration
+    let out = "\
+     PHONON       :     10.0s CPU     10.5s WALL
+
+     Self-consistent Calculation
+
+      iter #   1 total cpu time :     22.5 secs   av.it.:   5.4
+      thresh= 1.000E-02 alpha_mix =  0.700 |ddv_scf|^2 =  4.4E-07
+
+     End of self-consistent calculation
+";
+    let metrics = ph::parse_metrics(out);
+    let block = metrics
+        .representation_blocks
+        .first()
+        .expect("one representation");
+    assert_eq!(block.iterations_to_converge(), Some(1));
+    assert_eq!(block.time_per_calculation(), Some(12.5));
+    assert_eq!(block.time_per_iteration(), Some(12.5));
+}

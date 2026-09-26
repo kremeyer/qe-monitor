@@ -50,8 +50,8 @@ fn shows_time_per_representation() {
 fn scales_long_representations_to_minutes() {
     let name = "own/ph_midrun.out";
     let (text, coloured) = chart(name);
-    assert!(text.contains("3.3m"), "{name}: {text}");
-    assert_eq!(coloured, vec!["3.3m", "3.6m"], "{name}: {coloured:?}");
+    assert!(text.contains("3.7m"), "{name}: {text}");
+    assert_eq!(coloured, vec!["3.7m", "4.2m"], "{name}: {coloured:?}");
 }
 
 #[test]
@@ -59,7 +59,7 @@ fn duration_is_drawn_on_top_of_the_bar() {
     let name = "ph/metal_multiq.out";
     let (text, _) = chart(name);
     assert!(
-        text.lines().any(|l| l.contains("\u{2588}0.2s")),
+        text.lines().any(|l| l.contains("\u{2588}1.0s")),
         "{name}: duration should sit directly on the bar: {text}"
     );
     for line in text.lines().filter(|l| l.contains('\u{2588}')) {
