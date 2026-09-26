@@ -126,6 +126,7 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
                 if let Some(b) = open_repr_block.as_mut() {
                     b.cpu_time_first.get_or_insert(t);
                     b.cpu_time_last = Some(t);
+                    b.cpu_time.push(t);
                 }
             }
             continue;
