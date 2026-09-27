@@ -106,7 +106,11 @@ pub struct PwMetrics {
     pub band_blocks: Vec<BandBlock>,
     /// Number of k-point pools (`pw.x -nk`). `None` or 1 means no pooling.
     pub npool: Option<u32>,
+    /// k-points as the header reports them. For LSDA this counts one spin
+    /// channel only; see [`PwMetrics::num_kpts_all`].
     pub num_kpts_total: Option<u32>,
+    /// Spin-polarised (`nspin = 2`), which doubles the k-points of the band loop.
+    pub lsda: bool,
     pub scf_conv_thr: Option<f64>,
     pub etot_conv_thr: Option<f64>,
     pub forc_conv_thr: Option<f64>,
@@ -115,4 +119,15 @@ pub struct PwMetrics {
     pub ion_dyn_etot_err: Vec<f64>,  // "Energy error" [Ry]
     pub ion_dyn_forc_err: Vec<f64>,  // "Gradient error" [Ry/Bohr] - max force component
     pub ion_dyn_press_err: Vec<f64>, // "Cell gradient error" [kbar]
+}
+
+impl PwMetrics {
+    /// k-points the band loop actually runs over.
+    ///
+    /// The header prints `nkstot / 2` for LSDA so as not to list the replicated
+    /// spin-down points (`PW/src/summary.f90:322`), while the loop covers both.
+    pub fn num_kpts_all(&self) -> Option<u32> {
+        let n = self.num_kpts_total?;
+        Some(if self.lsda { n.saturating_mul(2) } else { n })
+    }
 }

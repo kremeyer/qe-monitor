@@ -90,7 +90,7 @@ pub fn render_scf_summary(frame: &mut Frame, area: Rect, pw: &PwMetrics) {
             // the pools may not hold equal shares.
             let npool = pw.npool.unwrap_or(1);
             let kpts_all = pw
-                .num_kpts_total
+                .num_kpts_all()
                 .unwrap_or_else(|| total_kpts.saturating_mul(npool));
             let completed_all = completed.saturating_mul(npool).min(kpts_all);
 
