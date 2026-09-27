@@ -141,3 +141,48 @@ fn only_the_duration_is_coloured() {
         "{name}: bars must not be coloured: {coloured:?}"
     );
 }
+
+fn threshold_row(fixture_name: &str) -> (String, Option<Color>) {
+    let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests/fixtures")
+        .join(fixture_name);
+    let app = qe_monitor::app::App::new(path, qe_monitor::CalcType::Ph);
+    let mut terminal = Terminal::new(TestBackend::new(150, 30)).unwrap();
+    terminal
+        .draw(|frame| qe_monitor::ui::ui(frame, &app))
+        .unwrap();
+    let buffer = terminal.backend().buffer().clone();
+
+    for y in 0..buffer.area.height {
+        let line: String = (0..buffer.area.width)
+            .map(|x| buffer[(x, y)].symbol())
+            .collect();
+        if let Some(start) = line.find("|ddv_scf|") {
+            let colour = (start as u16..buffer.area.width)
+                .map(|x| buffer[(x, y)].fg)
+                .find(|c| matches!(c, Color::LightGreen | Color::LightRed));
+            return (line.trim().to_string(), colour);
+        }
+    }
+    panic!("{fixture_name}: no threshold row rendered");
+}
+
+#[test]
+fn phonon_panel_reports_the_convergence_threshold() {
+    let (row, colour) = threshold_row("ph/base_si.out");
+    assert!(row.contains("1.00e-14"), "target missing: {row}");
+    assert!(row.contains("4.93e-15"), "current missing: {row}");
+    assert_eq!(colour, Some(Color::LightGreen), "converged: {row}");
+
+    let (row, colour) = threshold_row("own/ph_midrun.out");
+    assert!(row.contains("1.00e-14"), "target missing: {row}");
+    assert!(row.contains("1.12e-13"), "current missing: {row}");
+    assert_eq!(colour, Some(Color::LightRed), "not converged: {row}");
+}
+
+#[test]
+fn phonon_panel_omits_the_current_value_before_any_iteration() {
+    let (row, colour) = threshold_row("ph/restart1.out");
+    assert!(row.contains("1.00e-18"), "target missing: {row}");
+    assert_eq!(colour, None, "nothing to compare yet: {row}");
+}

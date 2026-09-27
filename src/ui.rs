@@ -184,13 +184,43 @@ fn render_header_right(frame: &mut Frame, area: Rect, metrics: &Metrics) {
 
             frame.render_widget(ratatui::widgets::Paragraph::new(lines).block(block), area);
         }
-        Metrics::Ph(_) => {
-            frame.render_widget(
-                Block::new()
-                    .borders(Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
-                    .title(Line::from(" Header Right ").centered()),
-                area,
-            );
+        Metrics::Ph(ph) => {
+            let block = Block::new()
+                .borders(Borders::RIGHT | Borders::TOP | Borders::BOTTOM)
+                .title(Line::from(" Thresholds ").bold().centered());
+
+            let current = ph
+                .representation_blocks
+                .iter()
+                .rev()
+                .find_map(|b| b.accuracy.last().copied());
+
+            let fmt = |v: Option<f64>| {
+                v.map(|x| format!("{:.2e}", x))
+                    .unwrap_or_else(|| "-".to_string())
+            };
+            let color = match (current, ph.conv_threshold) {
+                (Some(c), Some(t)) if c < t => Color::LightGreen,
+                (Some(_), Some(_)) => Color::LightRed,
+                _ => Color::Reset,
+            };
+
+            let lines = vec![
+                Line::from(format!("{:<12} {:<9} {}", "", "target", "current")),
+                Line::from(vec![
+                    ratatui::text::Span::raw(format!(
+                        "{:<12} {:<10}",
+                        "|ddv_scf|²:",
+                        fmt(ph.conv_threshold)
+                    )),
+                    ratatui::text::Span::styled(
+                        current.map(|x| format!("{:.2e}", x)).unwrap_or_default(),
+                        Style::default().fg(color),
+                    ),
+                ]),
+            ];
+
+            frame.render_widget(Paragraph::new(lines).block(block), area);
         }
         Metrics::Wannier90(_) => {
             frame.render_widget(
