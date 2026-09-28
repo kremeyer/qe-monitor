@@ -128,7 +128,6 @@ pub fn build_tabs(pm: &PhMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
             "Repr. Iters",
             Box::new(RepresentationIterationsChart::from(pm)) as Box<dyn Renderable>,
         ),
-        // SCF accuracy last, so the right panel (default last) shows it as before.
         ("SCF acc.", Box::new(scf_accuracy_chart(pm))),
     ]
 }
@@ -169,6 +168,8 @@ fn scf_accuracy_chart(ph: &PhMetrics) -> crate::ui::ChartOrEmpty {
     crate::ui::ChartOrEmpty {
         chart,
         empty_title: Some(" SCF Accuracy "),
+        help_text: "SCF accuracy per iteration of the last 3 irreducible representations.\n
+        The current iteration is shown in green, the previous ones in yellow and red. The horizontal dashed line indicates the convergence threshold. The y-axis is logarithmic."
     }
 }
 
@@ -318,5 +319,10 @@ impl Renderable for RepresentationIterationsChart {
                 buffer[(x, y)].set_char(ch).set_style(style);
             }
         }
+    }
+
+    fn help(&self) -> &'static str {
+        "Number of iterations needed to converge each irreducible representation.\n
+        Vertival bars show the number of iterations. The text on the left indicated the number of the representation with the number of iterations shown next to it. The text on the right shows the total time spent to compute the representation. The color of the text indicates how long it took to compute EACH ITERATION of the representation. Green indicated fast, red slow."
     }
 }

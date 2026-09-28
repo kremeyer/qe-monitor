@@ -162,6 +162,11 @@ impl Renderable for WfSpreadBarChart {
             .direction(ratatui::layout::Direction::Horizontal);
         frame.render_widget(bar_chart, area);
     }
+
+    fn help(&self) -> &'static str {
+        "Bar chart of the spreads of the Wannier function after the last iteration of the wannierization.\n
+        The actual values are shown on the left of the bars in units of Angstrom². The bars are scaled to fit the available space, so only their relative heights are meaningful."
+    }
 }
 
 /// Build the full set of wannier90 plots.
@@ -177,6 +182,10 @@ pub fn build_tabs(wm: &WannierMetrics) -> Vec<(&'static str, Box<dyn Renderable>
                 "Ω_I",
                 vec![to_log_points(&db.omega_i)],
                 None,
+            )
+            .with_help(
+                "Ω_I, the gauge-invariant part of the spread, at each disentanglement iteration.\n\n
+                Disentanglement minimises Ω_I to pick the optimal subspace out of the bands in the outer window. The y-axis is logarithmic. There is no threshold line here: convergence is judged on the change between iterations, which is the next plot.",
             )),
         ));
         tabs.push((
@@ -187,6 +196,10 @@ pub fn build_tabs(wm: &WannierMetrics) -> Vec<(&'static str, Box<dyn Renderable>
                 "ΔΩ",
                 vec![to_log_points(&db.delta_omega_i)],
                 wm.disentanglement_conv_threshold,
+            )
+            .with_help(
+                "Fractional change of Ω_I between consecutive disentanglement iterations.\n\n
+                The dashed gray line shows dis_conv_tol. Disentanglement stops once the change stays below it for dis_conv_window iterations in a row, so a single dip under the line is not yet convergence. The y-axis is logarithmic.",
             )),
         ));
     }
@@ -199,6 +212,9 @@ pub fn build_tabs(wm: &WannierMetrics) -> Vec<(&'static str, Box<dyn Renderable>
             "Spread (Ang^2)",
             vec![to_log_points(&wm.spread_block.spread)],
             None,
+        )
+        .with_help(
+            "Total spread Ω of all Wannier functions at each wannierisation iteration, in Ang².",
         )),
     ));
 
@@ -215,6 +231,10 @@ pub fn build_tabs(wm: &WannierMetrics) -> Vec<(&'static str, Box<dyn Renderable>
             "ΔΩ",
             vec![to_log_points(&wm.spread_block.delta_spread)],
             wann_thr,
+        )
+        .with_help(
+            "Change of the total spread between consecutive wannierisation iterations.\n\n
+            The dashed gray line shows conv_tol, and wannier90 stops once the change stays below it for conv_window iterations in a row. The y-axis is logarithmic and shows log10(|ΔΩ|).",
         )),
     ));
 

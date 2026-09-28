@@ -2,11 +2,11 @@ use chrono::{DateTime, Local, Utc};
 use crossterm::event::KeyCode;
 use ratatui::{
     Frame,
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Constraint, Direction, Flex, Layout, Rect},
     style::{Color, Style, Stylize},
     symbols,
     text::Line,
-    widgets::{Axis, Block, Borders, Chart, Dataset, GraphType, Paragraph, Tabs},
+    widgets::{Axis, Block, Borders, Chart, Clear, Dataset, GraphType, Paragraph, Tabs, Wrap},
 };
 
 use crate::app::{App, Metrics};
@@ -32,7 +32,7 @@ pub fn ui(frame: &mut Frame, app: &App) {
         .borders(Borders::TOP)
         .title(title.centered())
         .title(last_modified_line.right_aligned())
-        .title(Line::from("q to quit ").left_aligned());
+        .title(Line::from("q to quit | h/? for help ").left_aligned());
     let inner = root.inner(frame.area());
     frame.render_widget(root, frame.area());
 
@@ -234,11 +234,11 @@ fn render_header_right(frame: &mut Frame, area: Rect, metrics: &Metrics) {
 }
 
 fn render_main_1(frame: &mut Frame, area: Rect, app: &App) {
-    app.left_charts.render(frame, area);
+    app.left_charts.render(frame, area, app.show_help);
 }
 
 fn render_main_2(frame: &mut Frame, area: Rect, app: &App) {
-    app.right_charts.render(frame, area);
+    app.right_charts.render(frame, area, app.show_help);
 }
 
 fn render_footer_right(frame: &mut Frame, area: Rect, app: &App) {
@@ -291,6 +291,7 @@ pub struct ConvergenceChart {
     pub y_label: &'static str,
     pub datasets: Vec<Vec<(f64, f64)>>,
     pub threshold: Option<f64>,
+    pub help_text: &'static str,
 }
 
 impl ConvergenceChart {
@@ -307,7 +308,13 @@ impl ConvergenceChart {
             y_label,
             datasets,
             threshold,
+            help_text: "",
         }
+    }
+
+    pub fn with_help(mut self, help_text: &'static str) -> Self {
+        self.help_text = help_text;
+        self
     }
 }
 
@@ -418,6 +425,10 @@ impl Renderable for ConvergenceChart {
 
         frame.render_widget(chart, area);
     }
+
+    fn help(&self) -> &'static str {
+        self.help_text
+    }
 }
 
 // ==========================================
@@ -426,6 +437,9 @@ impl Renderable for ConvergenceChart {
 
 pub trait Renderable {
     fn render(&self, frame: &mut Frame, area: Rect);
+    fn help(&self) -> &'static str {
+        ""
+    }
 }
 
 /// Which keys select tabs in a `TabGroup`. Lets two panels coexist without
@@ -442,10 +456,6 @@ pub struct TabGroup {
     tabs: Vec<(&'static str, Box<dyn Renderable>)>,
     active: usize,
     keys: TabKeys,
-    /// Until the user selects a tab, track the last tab as the set grows. Lets the
-    /// right panel default to a different plot than the left instead of duplicating it.
-    prefer_last: bool,
-    user_selected: bool,
 }
 
 impl std::fmt::Debug for TabGroup {
@@ -465,20 +475,17 @@ impl TabGroup {
         self
     }
 
-    /// Default to the last tab (until the user picks one). Builder style.
-    pub fn with_default_last(mut self) -> Self {
-        self.prefer_last = true;
+    /// Which tab to open on, so the two panels do not start on the same plot.
+    /// Builder style.
+    pub fn with_default_tab(mut self, index: usize) -> Self {
+        self.active = index;
         self
     }
 
     /// Replace all tabs, preserving the active index if still in range.
     pub fn rebuild(&mut self, tabs: Vec<(&'static str, Box<dyn Renderable>)>) {
         self.tabs = tabs;
-        if self.tabs.is_empty() {
-            self.active = 0;
-        } else if self.prefer_last && !self.user_selected {
-            self.active = self.tabs.len() - 1;
-        } else if self.active >= self.tabs.len() {
+        if self.active >= self.tabs.len() {
             self.active = 0;
         }
     }
@@ -496,52 +503,74 @@ impl TabGroup {
         };
         if idx < self.tabs.len() {
             self.active = idx;
-            self.user_selected = true;
             return true;
         }
         false
     }
 
-    pub fn render(&self, frame: &mut Frame, area: Rect) {
+    pub fn render(&self, frame: &mut Frame, area: Rect, show_help: bool) {
         if self.tabs.is_empty() {
             frame.render_widget(Block::bordered(), area);
             return;
         }
 
-        // Single tab - no tab bar, just render the widget directly
-        if self.tabs.len() == 1 {
-            self.tabs[0].1.render(frame, area);
-            return;
+        let content = if self.tabs.len() == 1 {
+            // Single tab - no tab bar, just render the widget directly
+            area
+        } else {
+            // Multiple tabs: tab bar on top, content below
+            let chunks = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(area);
+
+            let titles: Vec<Line> = self
+                .tabs
+                .iter()
+                .enumerate()
+                .map(|(i, (label, _))| {
+                    let text = match self.keys {
+                        TabKeys::Function => format!(" F{} {} ", i + 1, label),
+                        TabKeys::Digit => format!(" {} {} ", i + 1, label),
+                    };
+                    if i == self.active {
+                        Line::from(text).style(Style::default().fg(Color::White).bold())
+                    } else {
+                        Line::from(text).style(Style::default().fg(Color::DarkGray))
+                    }
+                })
+                .collect();
+
+            let tabs = Tabs::new(titles)
+                .select(self.active)
+                .divider("│")
+                .highlight_style(Style::default().fg(Color::White).bold());
+
+            frame.render_widget(tabs, chunks[0]);
+
+            chunks[1]
+        };
+
+        self.tabs[self.active].1.render(frame, content);
+
+        if show_help {
+            let help_text = self.tabs[self.active].1.help();
+
+            if help_text.is_empty() {
+                return;
+            }
+
+            let [popup] = Layout::horizontal([Constraint::Max(60)])
+                .flex(Flex::Center)
+                .areas(content);
+            let [popup] = Layout::vertical([Constraint::Max(20)])
+                .flex(Flex::Center)
+                .areas(popup);
+            frame.render_widget(Clear, popup); // clear background
+            frame.render_widget(
+                Paragraph::new(help_text)
+                    .wrap(Wrap { trim: true })
+                    .block(Block::bordered().title(Line::from(" Help ").bold().centered())),
+                popup,
+            );
         }
-
-        // Multiple tabs: tab bar on top, content below
-        let chunks = Layout::vertical([Constraint::Length(1), Constraint::Min(0)]).split(area);
-
-        let titles: Vec<Line> = self
-            .tabs
-            .iter()
-            .enumerate()
-            .map(|(i, (label, _))| {
-                let text = match self.keys {
-                    TabKeys::Function => format!(" F{} {} ", i + 1, label),
-                    TabKeys::Digit => format!(" {} {} ", i + 1, label),
-                };
-                if i == self.active {
-                    Line::from(text).style(Style::default().fg(Color::White).bold())
-                } else {
-                    Line::from(text).style(Style::default().fg(Color::DarkGray))
-                }
-            })
-            .collect();
-
-        let tabs = Tabs::new(titles)
-            .select(self.active)
-            .divider("│")
-            .highlight_style(Style::default().fg(Color::White).bold());
-
-        frame.render_widget(tabs, chunks[0]);
-
-        self.tabs[self.active].1.render(frame, chunks[1]);
     }
 }
 
@@ -549,6 +578,14 @@ impl TabGroup {
 pub struct ChartOrEmpty {
     pub chart: Option<ConvergenceChart>,
     pub empty_title: Option<&'static str>,
+    pub help_text: &'static str,
+}
+
+impl ChartOrEmpty {
+    pub fn with_help(mut self, help_text: &'static str) -> Self {
+        self.help_text = help_text;
+        self
+    }
 }
 
 impl Renderable for ChartOrEmpty {
@@ -563,6 +600,10 @@ impl Renderable for ChartOrEmpty {
                 frame.render_widget(block, area);
             }
         }
+    }
+
+    fn help(&self) -> &'static str {
+        self.help_text
     }
 }
 
@@ -580,3 +621,8 @@ pub fn mean_std(xs: &[f64]) -> (f64, f64) {
     let var = xs.iter().map(|v| (v - mean) * (v - mean)).sum::<f64>() / n;
     (mean, var.sqrt())
 }
+
+// pub fn help_overlay(frame: &mut Frame, area: Rect, text: &str) {
+//     let block = Block::bordered().title("Help");
+//     frame.render_widget(block, area);
+// }

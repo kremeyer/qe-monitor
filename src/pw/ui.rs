@@ -3,7 +3,7 @@ use core::f64;
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::{
     Frame,
-    layout::Rect,
+    layout::{Constraint, Rect},
     symbols,
     text::Line,
     widgets::{Axis, Block, Chart, Dataset, GraphType, Paragraph},
@@ -207,21 +207,19 @@ pub fn build_tabs(pm: &PwMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
                 "F [Ry/Bohr]",
                 vec![values_to_log_points(&pm.total_force)],
                 pm.forc_conv_thr,
+            )
+            .with_help(
+                "Total force on the ions after each step of the geometry optimisation.\n\n
+                The plotted value is the norm of the full 3N force vector, as pw.x reports it. forc_conv_thr, the dashed gray line, is instead tested against the largest single force component, so the run can converge while this curve is still above the line; once it drops below, the force criterion is certainly met.\n
+                The y-axis is logarithmic, showing log10(F).",
             )),
         ));
         tabs.push((
             "Pressure",
-            Box::new(ConvergenceChart::new(
-                "P [kbar]",
-                "step",
-                "P [kbar]",
-                vec![values_to_log_points(&pm.pressure)],
-                pm.press_conv_thr,
-            )),
+            Box::new(PressureChart::new(&pm.pressure, pm.press_conv_thr)),
         ));
     }
 
-    // SCF accuracy last, so the right panel (default last) shows it as before.
     tabs.push(("SCF acc.", Box::new(scf_accuracy_chart(pm))));
 
     tabs
@@ -362,6 +360,155 @@ impl Renderable for EnergyDeltaChart {
             }
         }
     }
+
+    fn help(&self) -> &'static str {
+        "Change in the total energy between consecutive steps.\n\n
+        Red ▲ markers indicate an increase in energy, green ▼ markers a decrease.\n
+        The dashed gray line shows the convergence threshold.\n
+        The y-axis is logarithmic, showing log10(|ΔE|)."
+    }
+}
+
+/// Pressure per step, split by sign so compression and tension stay
+/// distinguishable once the magnitude is taken for the log axis.
+struct PressureChart {
+    pos_pts: Vec<(f64, f64)>,
+    neg_pts: Vec<(f64, f64)>,
+    threshold: Option<f64>,
+}
+
+impl PressureChart {
+    fn new(pressures: &[f64], threshold: Option<f64>) -> Self {
+        let mut pos_pts = Vec::new();
+        let mut neg_pts = Vec::new();
+
+        for (i, &p) in pressures.iter().enumerate() {
+            let pt = ((i + 1) as f64, p.abs().max(1e-30).log10());
+            if p < 0.0 {
+                neg_pts.push(pt);
+            } else {
+                pos_pts.push(pt);
+            }
+        }
+
+        Self {
+            pos_pts,
+            neg_pts,
+            threshold,
+        }
+    }
+}
+
+impl Renderable for PressureChart {
+    fn render(&self, frame: &mut Frame, area: Rect) {
+        let block = Block::bordered().title(Line::from(" Pressure ").bold().centered());
+
+        if self.pos_pts.is_empty() && self.neg_pts.is_empty() {
+            frame.render_widget(block, area);
+            return;
+        }
+
+        let (x_min, x_max, y_min, y_max) = compute_log_bounds(
+            self.pos_pts.iter().chain(self.neg_pts.iter()),
+            self.threshold,
+        );
+        let x_mid = (x_min + x_max) / 2.0;
+        let y_mid = (y_min + y_max) / 2.0;
+
+        let threshold_line: Option<Vec<(f64, f64)>> = self.threshold.map(|thr| {
+            let y_thr = thr.max(1e-22).log10();
+            vec![(x_min, y_thr), (x_max, y_thr)]
+        });
+
+        let mut datasets: Vec<Dataset> = Vec::new();
+
+        if let Some(ref thr_data) = threshold_line {
+            datasets.push(
+                Dataset::default()
+                    .name("thr")
+                    .graph_type(GraphType::Line)
+                    .marker(symbols::Marker::Braille)
+                    .style(Style::default().fg(Color::DarkGray))
+                    .data(thr_data),
+            );
+        }
+
+        if !self.neg_pts.is_empty() {
+            datasets.push(
+                Dataset::default()
+                    .name("▼ P<0")
+                    .graph_type(GraphType::Scatter)
+                    .marker(symbols::Marker::Dot)
+                    .style(Style::default().fg(Color::LightMagenta))
+                    .data(&self.neg_pts),
+            );
+        }
+        if !self.pos_pts.is_empty() {
+            datasets.push(
+                Dataset::default()
+                    .name("▲ P>0")
+                    .graph_type(GraphType::Scatter)
+                    .marker(symbols::Marker::Dot)
+                    .style(Style::default().fg(Color::LightCyan))
+                    .data(&self.pos_pts),
+            );
+        }
+
+        let chart = Chart::new(datasets)
+            .block(block)
+            .x_axis(
+                Axis::default()
+                    .title("step")
+                    .bounds([x_min, x_max])
+                    .labels([
+                        Line::from(format!("{:.0}", x_min)),
+                        Line::from(format!("{:.0}", x_mid)),
+                        Line::from(format!("{:.0}", x_max)),
+                    ]),
+            )
+            .y_axis(
+                Axis::default()
+                    .title("|P| [kbar]")
+                    .bounds([y_min, y_max])
+                    .labels([
+                        Line::from(format!("{:.1e}", 10f64.powf(y_min))),
+                        Line::from(format!("{:.1e}", 10f64.powf(y_mid))),
+                        Line::from(format!("{:.1e}", 10f64.powf(y_max))),
+                    ]),
+            )
+            // Three datasets overflow the default quarter-height allowance and
+            // the legend is dropped silently.
+            .hidden_legend_constraints((Constraint::Percentage(50), Constraint::Percentage(50)));
+
+        frame.render_widget(chart, area);
+
+        // Post-process: replace dot markers with ▼/▲ based on color
+        let buf = frame.buffer_mut();
+        for y in area.y..area.y + area.height {
+            for x in area.x..area.x + area.width {
+                let cell = &buf[(x, y)];
+                let sym = cell.symbol().to_string();
+                if sym == "•" {
+                    let fg = cell.fg;
+                    let replacement = if fg == Color::LightMagenta {
+                        "▼"
+                    } else if fg == Color::LightCyan {
+                        "▲"
+                    } else {
+                        continue;
+                    };
+                    buf[(x, y)].set_symbol(replacement);
+                }
+            }
+        }
+    }
+
+    fn help(&self) -> &'static str {
+        "Pressure on the cell after each step of the geometry optimisation.\n\n
+        Cyan ▲ markers are a positive pressure, magenta ▼ a negative one.\n
+        The dashed gray line shows press_conv_thr.\n
+        The y-axis is logarithmic, showing log10(|P|)."
+    }
 }
 
 /// Convert raw values to (1-indexed step, log10(|value|)) points for convergence charts.
@@ -459,6 +606,11 @@ impl Renderable for KptTimeChart {
 
         frame.render_widget(chart, area);
     }
+
+    fn help(&self) -> &'static str {
+        "Time spent to compute each k-point in the band loop on the printing pool.\n\n
+        For the data to be present in the output file, the pw.x needs to be run with high verbosity."
+    }
 }
 
 /// Compute axis bounds from pre-computed (x, log10(y)) points.
@@ -536,5 +688,7 @@ fn scf_accuracy_chart(pw: &PwMetrics) -> crate::ui::ChartOrEmpty {
     crate::ui::ChartOrEmpty {
         chart,
         empty_title: Some(" SCF Accuracy "),
+        help_text: "SCF accuracy per iteration of the last 3 irreducible representations.\n
+        The current iteration is shown in green, the previous ones in yellow and red. The horizontal dashed line indicates the convergence threshold. The y-axis is logarithmic."
     }
 }

@@ -35,6 +35,7 @@ impl Default for Metrics {
 #[derive(Debug)]
 pub struct App {
     exit: bool,
+    pub show_help: bool,
     pub main_widget_split: u16, // percentage for main widget split
     pub main_widget_orientation: ratatui::layout::Direction, // horizontal or vertical
 
@@ -57,6 +58,7 @@ impl App {
     pub fn new(filename: PathBuf, calc_type: CalcType) -> Self {
         let mut app = Self {
             exit: false,
+            show_help: false,
             main_widget_split: 50,
             main_widget_orientation: ratatui::layout::Direction::Horizontal,
             filename,
@@ -70,7 +72,7 @@ impl App {
             left_charts: TabGroup::default().with_keys(TabKeys::Function),
             right_charts: TabGroup::default()
                 .with_keys(TabKeys::Digit)
-                .with_default_last(),
+                .with_default_tab(1),
             output_file: String::new(),
             last_modified: None,
             last_size: 0,
@@ -119,6 +121,12 @@ impl App {
     fn handle_key_event(&mut self, key_event: KeyEvent) {
         if let KeyCode::Char('q') = key_event.code {
             self.exit = true;
+        }
+        if let KeyCode::Char('?') = key_event.code {
+            self.show_help = !self.show_help;
+        }
+        if let KeyCode::Char('h') = key_event.code {
+            self.show_help = !self.show_help;
         }
 
         // Let the panels grab their selector keys first: left = F-keys, right = numbers.
