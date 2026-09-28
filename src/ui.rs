@@ -13,7 +13,8 @@ use crate::app::{App, Metrics};
 
 pub fn ui(frame: &mut Frame, app: &App) {
     let title = Line::from(format!(
-        " qe-monitor - {} ",
+        " qe-monitor {} - {} ",
+        env!("CARGO_PKG_VERSION"),
         app.filename.to_str().unwrap_or("")
     ));
 
