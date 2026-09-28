@@ -29,6 +29,10 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
 
     // for representation-level block
     let mut open_repr_block: Option<RepresentationBlock> = None;
+    // Clock reading when the current representation started. Its own timings only
+    // begin after the first iteration, so without this anchor a representation
+    // that converges in one iteration would appear to take no time at all.
+    let mut block_start: Option<f64> = None;
     let mut cur_iter: Option<u32> = None;
     let mut pending_cpu_time: Option<f64> = None;
 
@@ -70,9 +74,9 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
             continue;
         }
 
-        // Each q-point this run computes announces itself here. QE does not report
-        // start_q/last_q (except via the recover range line above), so the q-points
-        // that actually appear are the only reliable measure of the run's scope.
+        // Each q-point this run computes announces itself here. QE never echoes
+        // start_q/last_q, and prints the range line above only under recover, so a
+        // run's scope is not knowable; progress is reported against the q-grid.
         if line.starts_with("Calculation of q =") {
             in_degeneracy_table = false;
             num_qpoints_started += 1;
@@ -115,6 +119,7 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
             // open new block
             let b = RepresentationBlock::default();
             open_repr_block = Some(b);
+            block_start = pending_cpu_time;
             cur_iter = None;
             continue;
         }
@@ -124,8 +129,16 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
                 cur_iter = Some(iter);
                 pending_cpu_time = Some(t);
                 if let Some(b) = open_repr_block.as_mut() {
-                    b.cpu_time_first.get_or_insert(t);
+                    if b.cpu_time.is_empty()
+                        && let Some(start) = block_start
+                        && start <= t
+                    {
+                        b.cpu_time.push(start);
+                    }
+                    b.cpu_time_first
+                        .get_or_insert(*b.cpu_time.first().unwrap_or(&t));
                     b.cpu_time_last = Some(t);
+                    b.cpu_time.push(t);
                 }
             }
             continue;
@@ -193,12 +206,26 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
     // in the grid table are preferred (they are known as soon as a q-point starts);
     // the per-q "There are ..." lines are the fallback when no table was printed,
     // as in a recover run.
-    pm.num_representations = if !computed_reps.is_empty() {
-        computed_reps
-    } else {
+    let grid_reps: Vec<u32> = qpoint_table.iter().map(|&(_, n)| n).collect();
+
+    pm.num_representations = if range_total.is_some() {
+        if computed_reps.is_empty() {
+            there_are_reps
+        } else {
+            computed_reps
+        }
+    } else if !grid_reps.is_empty() {
+        grid_reps
+    } else if computed_reps.is_empty() {
         there_are_reps
+    } else {
+        computed_reps
     };
-    pm.num_qpoints = range_total.unwrap_or(0).max(num_qpoints_started);
+
+    pm.num_qpoints = range_total
+        .or_else(|| (!qpoint_table.is_empty()).then_some(qpoint_table.len() as u32))
+        .unwrap_or(0)
+        .max(num_qpoints_started);
 
     pm
 }

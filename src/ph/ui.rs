@@ -2,6 +2,7 @@ use ratatui::style::Stylize;
 use ratatui::{
     Frame,
     layout::Rect,
+    style::{Color, Style},
     text::Line,
     widgets::{Bar, BarChart, BarGroup, Block, Paragraph},
 };
@@ -127,7 +128,6 @@ pub fn build_tabs(pm: &PhMetrics) -> Vec<(&'static str, Box<dyn Renderable>)> {
             "Repr. Iters",
             Box::new(RepresentationIterationsChart::from(pm)) as Box<dyn Renderable>,
         ),
-        // SCF accuracy last, so the right panel (default last) shows it as before.
         ("SCF acc.", Box::new(scf_accuracy_chart(pm))),
     ]
 }
@@ -168,12 +168,41 @@ fn scf_accuracy_chart(ph: &PhMetrics) -> crate::ui::ChartOrEmpty {
     crate::ui::ChartOrEmpty {
         chart,
         empty_title: Some(" SCF Accuracy "),
+        help_text: "SCF accuracy per iteration of the last 3 irreducible representations.\n
+        The current iteration is shown in green, the previous ones in yellow and red. The horizontal dashed line indicates the convergence threshold. The y-axis is logarithmic."
     }
 }
 
 struct RepresentationIterationsChart {
     n_iters: Vec<u32>,
+    seconds: Vec<Option<f64>>,
+    secs_per_iter: Vec<Option<f64>>,
     num_reps_completed: u32,
+}
+
+/// Green - yellow - red smooth colorbar
+fn speed_color(fraction: f64) -> Color {
+    const GREEN: (f64, f64, f64) = (95.0, 215.0, 95.0);
+    const YELLOW: (f64, f64, f64) = (215.0, 215.0, 95.0);
+    const RED: (f64, f64, f64) = (235.0, 95.0, 85.0);
+
+    let (from, to, t) = if fraction < 0.5 {
+        (GREEN, YELLOW, fraction * 2.0)
+    } else {
+        (YELLOW, RED, (fraction - 0.5) * 2.0)
+    };
+    let lerp = |a: f64, b: f64| (a + (b - a) * t).round() as u8;
+    Color::Rgb(lerp(from.0, to.0), lerp(from.1, to.1), lerp(from.2, to.2))
+}
+
+fn compact_duration(secs: f64) -> String {
+    if secs >= 3600.0 {
+        format!("{:.1}h", secs / 3600.0)
+    } else if secs >= 60.0 {
+        format!("{:.1}m", secs / 60.0)
+    } else {
+        format!("{secs:.1}s")
+    }
 }
 
 impl From<&PhMetrics> for RepresentationIterationsChart {
@@ -183,6 +212,18 @@ impl From<&PhMetrics> for RepresentationIterationsChart {
                 .representation_blocks
                 .iter()
                 .filter_map(|b| b.iterations_to_converge())
+                .collect(),
+            seconds: pm
+                .representation_blocks
+                .iter()
+                .filter(|b| b.iterations_to_converge().is_some())
+                .map(|b| b.time_per_calculation())
+                .collect(),
+            secs_per_iter: pm
+                .representation_blocks
+                .iter()
+                .filter(|b| b.iterations_to_converge().is_some())
+                .map(|b| b.time_per_iteration())
                 .collect(),
             num_reps_completed: pm.num_representations_completed,
         }
@@ -211,6 +252,11 @@ impl Renderable for RepresentationIterationsChart {
             .max()
             .unwrap_or(1);
 
+        let durations: Vec<String> = self
+            .seconds
+            .iter()
+            .map(|s| s.map(compact_duration).unwrap_or_default())
+            .collect();
         let bars: Vec<Bar> = visible_iters
             .iter()
             .enumerate()
@@ -229,9 +275,54 @@ impl Renderable for RepresentationIterationsChart {
                     .title(Line::from(" Representation Iterations ").bold().centered()),
             )
             .data(BarGroup::default().bars(&bars))
+            .bar_style(Style::default().fg(Color::Gray))
             .bar_gap(0)
             .bar_width(1)
             .direction(ratatui::layout::Direction::Horizontal);
         frame.render_widget(bar_chart, area);
+
+        let finite: Vec<f64> = self.secs_per_iter.iter().flatten().copied().collect();
+        let fastest = finite.iter().copied().fold(f64::INFINITY, f64::min);
+        let slowest = finite.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+        let spread = slowest - fastest;
+
+        let right = area.x + area.width.saturating_sub(1);
+        let bottom = area.y + area.height.saturating_sub(1);
+        for (i, _) in visible_iters.iter().enumerate() {
+            let y = area.y + 1 + i as u16;
+            if y >= bottom {
+                break;
+            }
+            let Some(text) = durations.get(start + i) else {
+                continue;
+            };
+            if text.is_empty() {
+                continue;
+            }
+            let width = text.chars().count() as u16;
+            if width >= area.width.saturating_sub(2) {
+                continue;
+            }
+            let fg = match self.secs_per_iter.get(start + i).copied().flatten() {
+                Some(per_iter) if spread > 0.0 => speed_color((per_iter - fastest) / spread),
+                _ => speed_color(0.5),
+            };
+
+            let x0 = right.saturating_sub(width);
+            let buffer = frame.buffer_mut();
+            for (k, ch) in text.chars().enumerate() {
+                let x = x0 + k as u16;
+                let mut style = Style::default().fg(fg);
+                if buffer[(x, y)].symbol() == "\u{2588}" {
+                    style = style.bg(Color::Gray);
+                }
+                buffer[(x, y)].set_char(ch).set_style(style);
+            }
+        }
+    }
+
+    fn help(&self) -> &'static str {
+        "Number of iterations needed to converge each irreducible representation.\n
+        Vertival bars show the number of iterations. The text on the left indicated the number of the representation with the number of iterations shown next to it. The text on the right shows the total time spent to compute the representation. The color of the text indicates how long it took to compute EACH ITERATION of the representation. Green indicated fast, red slow."
     }
 }

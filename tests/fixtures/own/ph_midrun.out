@@ -1,0 +1,265 @@
+
+     Program PHONON v.7.5 starts on 25Sep2026 at 16:45:38 
+
+     This program is part of the open-source Quantum ESPRESSO suite
+     for quantum simulation of materials; please cite
+         "P. Giannozzi et al., J. Phys.:Condens. Matter 21 395502 (2009);
+         "P. Giannozzi et al., J. Phys.:Condens. Matter 29 465901 (2017);
+         "P. Giannozzi et al., J. Chem. Phys. 152 154105 (2020);
+          URL http://www.quantum-espresso.org", 
+     in publications or presentations arising from this work. More details at
+     http://www.quantum-espresso.org/quote
+
+     Parallel version (MPI & OpenMP), running on      15 processor cores
+     Number of MPI processes:                15
+     Threads/MPI process:                     1
+
+     MPI processes distributed on     1 nodes
+     81100 MiB available memory on the printing compute node when the environment starts
+ 
+     Reading input from ph.in
+      Title line not specified: using 'default'.
+
+     Reading xml data from directory:
+
+     ./tmp/mos2.save/
+ 
+     R & G space division:  proc/nbgrp/npool/nimage =      15
+     Subspace diagonalization in iterative solution of the eigenvalue problem:
+     a serial algorithm will be used
+
+
+     IMPORTANT: XC functional enforced from input :
+     Exchange-correlation= PBE
+                           (   1   4   3   4   0   0   0)
+     Any further DFT definition will be discarded
+     Please, verify this is what you really want
+
+ 
+     Parallelization info
+     --------------------
+     sticks:   dense  smooth     PW     G-vecs:    dense   smooth      PW
+     Min          79      79     23                22319    22319    3335
+     Max          80      80     24                22358    22358    3359
+     Sum        1189    1189    349               335015   335015   50191
+ 
+     Using Slab Decomposition
+ 
+ ----2D----2D----2D----2D----2D----2D----2D----2D----2D----2D----2D----2D
+  The code is running with the 2D cutoff
+  Please refer to:
+  Sohier, T., Calandra, M., & Mauri, F. (2017), 
+  Density functional perturbation theory for gated two-dimensional heterostructu
+ res:
+  Theoretical developments and application to flexural phonons in graphene.
+  Physical Review B, 96(7), 75448. https://doi.org/10.1103/PhysRevB.96.075448
+ ----2D----2D----2D----2D----2D----2D----2D----2D----2D----2D----2D----2D
+
+     negative rho (up, down):  8.718E-07 0.000E+00
+     Reading collected, re-writing distributed wavefunctions in ./tmp/
+
+
+     Dynamical matrices for ( 5, 5, 1)  uniform grid of q-points
+     (   5 q-points):
+       N         xq(1)         xq(2)         xq(3) 
+       1   0.000000000   0.000000000   0.000000000
+       2   0.000000000   0.230940108   0.000000000
+       3   0.000000000   0.461880215   0.000000000
+       4   0.200000000   0.346410162   0.000000000
+       5   0.200000000   0.577350269   0.000000000
+
+     Number and degeneracy of irreps per q-point
+       N         xq(1)         xq(2)         xq(3)   N irreps
+       1   0.000000000   0.000000000   0.000000000       6
+        1   2   2   1   1   2
+       2   0.000000000   0.230940108   0.000000000       9
+     No degeneracy
+       3   0.000000000   0.461880215   0.000000000       9
+     No degeneracy
+       4   0.200000000   0.346410162   0.000000000       9
+     No degeneracy
+       5   0.200000000   0.577350269   0.000000000       9
+     No degeneracy
+
+     Saving dvscf to file. Distribute only q points, not irreducible representations.
+
+     Calculation of q =    0.0000000   0.0000000   0.0000000
+
+     default                                                                    
+
+     bravais-lattice index     =            4
+     lattice parameter (alat)  =       6.0195  a.u.
+     unit-cell volume          =    1888.9125 (a.u.)^3
+     number of atoms/cell      =            3
+     number of atomic types    =            2
+     kinetic-energy cut-off    =     120.0000  Ry
+     charge density cut-off    =     480.0000  Ry
+     convergence threshold     =      1.0E-14
+     beta                      =       0.7000
+     number of iterations used =           20
+     Exchange-correlation= PBE
+                           (   1   4   3   4   0   0   0)
+
+
+     celldm(1)=    6.01950  celldm(2)=    0.00000  celldm(3)=   10.00000
+     celldm(4)=    0.00000  celldm(5)=    0.00000  celldm(6)=    0.00000
+
+     crystal axes: (cart. coord. in units of alat)
+               a(1) = (  1.0000  0.0000  0.0000 )  
+               a(2) = ( -0.5000  0.8660  0.0000 )  
+               a(3) = (  0.0000  0.0000 10.0000 )  
+
+     reciprocal axes: (cart. coord. in units 2 pi/alat)
+               b(1) = (  1.0000  0.5774  0.0000 )  
+               b(2) = (  0.0000  1.1547  0.0000 )  
+               b(3) = (  0.0000  0.0000  0.1000 )  
+
+
+     Atoms inside the unit cell: 
+
+     Cartesian axes
+
+     site n.  atom      mass           positions (alat units)
+        1  Mo     95.9500   tau(    1) = (    0.50000    0.28868    7.50000  )
+        2  S      32.0600   tau(    2) = (   -0.00000    0.57735    7.99067  )
+        3  S      32.0600   tau(    3) = (   -0.00000    0.57735    7.00933  )
+
+     Computing dynamical matrix for 
+                    q = (   0.0000000   0.0000000   0.0000000 )
+ 
+     13 Sym.Ops. (with q -> -q+G )
+
+
+     G cutoff =  440.5572  (  22321 G-vectors)     FFT grid: ( 45, 45,432)
+
+     number of k points=    44  Marzari-Vanderbilt smearing, width (Ry)=  0.0200
+
+     PseudoPot. # 1 for Mo read from file:
+     ../Mo_NC_SR.upf
+     MD5 check sum: 7ca7a9feba7bf08d88d14bc7fbf60c1e
+     Pseudo is Norm-conserving + core correction, Zval = 14.0
+     Generated using ONCVPSP code by D. R. Hamann
+     Using radial grid of 1640 points,  6 beta functions with: 
+                l(1) =   0
+                l(2) =   0
+                l(3) =   1
+                l(4) =   1
+                l(5) =   2
+                l(6) =   2
+
+     PseudoPot. # 2 for S  read from file:
+     ../S_NC_SR.upf
+     MD5 check sum: b72b6a9ca752e39de1a6cc592280dae2
+     Pseudo is Norm-conserving + core correction, Zval =  6.0
+     Generated using ONCVPSP code by D. R. Hamann
+     Using radial grid of 1148 points,  6 beta functions with: 
+                l(1) =   0
+                l(2) =   0
+                l(3) =   1
+                l(4) =   1
+                l(5) =   2
+                l(6) =   2
+
+     Mode symmetry, D_3h (-62m) point group:
+
+
+     Atomic displacements:
+     There are    6 irreducible representations
+
+     Representation     1      1 modes -  To be done
+
+     Representation     2      2 modes -  To be done
+
+     Representation     3      2 modes -  To be done
+
+     Representation     4      1 modes -  To be done
+
+     Representation     5      1 modes -  To be done
+
+     Representation     6      2 modes -  To be done
+
+
+
+     Alpha used in Ewald sum =   2.8000
+
+     negative rho (up, down):  8.718E-07 0.000E+00
+     PHONON       :      2.33s CPU      2.98s WALL
+
+
+
+     Representation #   1 mode #   1
+
+     Self-consistent Calculation
+ 
+     Pert. #  1: Fermi energy shift (Ry) =    -2.1729E+01    -8.8818E-16
+
+      iter #   1 total cpu time :    25.1 secs   av.it.:   8.0
+      thresh= 1.000E-02 alpha_mix =  0.700 |ddv_scf|^2 =  1.195E-05
+ 
+     Pert. #  1: Fermi energy shift (Ry) =    -3.8067E+01    -8.6736E-19
+
+      iter #   2 total cpu time :    54.8 secs   av.it.:  14.8
+      thresh= 3.457E-04 alpha_mix =  0.700 |ddv_scf|^2 =  1.130E-04
+ 
+     Pert. #  1: Fermi energy shift (Ry) =    -6.1741E+00     2.2204E-16
+
+      iter #   3 total cpu time :    84.1 secs   av.it.:  13.2
+      thresh= 1.063E-03 alpha_mix =  0.700 |ddv_scf|^2 =  1.945E-06
+ 
+     Pert. #  1: Fermi energy shift (Ry) =     6.0536E+00     1.7347E-18
+
+      iter #   4 total cpu time :   112.7 secs   av.it.:  13.1
+      thresh= 1.395E-04 alpha_mix =  0.700 |ddv_scf|^2 =  4.992E-08
+ 
+     Pert. #  1: Fermi energy shift (Ry) =     4.7359E+00     6.9389E-18
+
+      iter #   5 total cpu time :   138.1 secs   av.it.:  11.3
+      thresh= 2.234E-05 alpha_mix =  0.700 |ddv_scf|^2 =  5.141E-08
+ 
+     Pert. #  1: Fermi energy shift (Ry) =     3.6751E+00    -3.4694E-18
+
+      iter #   6 total cpu time :   167.9 secs   av.it.:  13.6
+      thresh= 2.267E-05 alpha_mix =  0.700 |ddv_scf|^2 =  3.962E-11
+ 
+     Pert. #  1: Fermi energy shift (Ry) =     3.5472E+00    -5.4210E-20
+
+      iter #   7 total cpu time :   195.8 secs   av.it.:  12.7
+      thresh= 6.295E-07 alpha_mix =  0.700 |ddv_scf|^2 =  9.900E-14
+ 
+     Pert. #  1: Fermi energy shift (Ry) =     3.5529E+00    -2.7105E-20
+
+      iter #   8 total cpu time :   225.5 secs   av.it.:  13.4
+      thresh= 3.146E-08 alpha_mix =  0.700 |ddv_scf|^2 =  7.825E-15
+
+     End of self-consistent calculation
+
+     Convergence has been achieved 
+
+
+     Representation #   2 modes #   2   3
+
+     Self-consistent Calculation
+ 
+     Pert. #  1: Fermi energy shift (Ry) =     4.7370E-15    -4.7332E-30
+     Pert. #  2: Fermi energy shift (Ry) =     9.4739E-15     3.6814E-30
+
+      iter #   1 total cpu time :   264.8 secs   av.it.:   6.9
+      thresh= 1.000E-02 alpha_mix =  0.700 |ddv_scf|^2 =  1.771E-09
+ 
+     Pert. #  1: Fermi energy shift (Ry) =    -7.5171E-18     9.6296E-35
+     Pert. #  2: Fermi energy shift (Ry) =    -3.4694E-18    -2.5679E-34
+
+      iter #   2 total cpu time :   336.7 secs   av.it.:  17.4
+      thresh= 4.208E-06 alpha_mix =  0.700 |ddv_scf|^2 =  1.669E-10
+ 
+     Pert. #  1: Fermi energy shift (Ry) =     5.7824E-19    -6.4198E-35
+     Pert. #  2: Fermi energy shift (Ry) =     0.0000E+00    -4.8148E-35
+
+      iter #   3 total cpu time :   408.8 secs   av.it.:  17.3
+      thresh= 1.292E-06 alpha_mix =  0.700 |ddv_scf|^2 =  5.310E-12
+ 
+     Pert. #  1: Fermi energy shift (Ry) =    -6.3607E-18     2.4074E-35
+     Pert. #  2: Fermi energy shift (Ry) =     1.1565E-18    -2.4074E-35
+
+      iter #   4 total cpu time :   478.5 secs   av.it.:  16.6
+      thresh= 2.304E-07 alpha_mix =  0.700 |ddv_scf|^2 =  1.119E-13

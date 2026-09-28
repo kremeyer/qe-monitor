@@ -296,6 +296,11 @@ fn parse_metrics_nscf(qe_output: &str) -> PwMetrics {
             pm.num_kpts_total = Some(n);
             continue;
         }
+        // Printed by summary.f90 for lsda and nothing else.
+        if !pm.lsda && line.starts_with("Starting magnetic structure") {
+            pm.lsda = true;
+            continue;
+        }
 
         // Detect band structure calculation start
         if line.contains("Band Structure Calculation") {

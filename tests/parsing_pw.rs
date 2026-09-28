@@ -195,3 +195,23 @@ fn detects_npool() {
     let metrics = pw::parse_metrics(&out);
     assert_eq!(metrics.npool, Some(12), "{name}");
 }
+
+#[test]
+fn doubles_lsda_kpoints() {
+    // "number of k points" omits the replicated spin-down points, but the band
+    // loop runs over both channels
+    let name = "pw/nscf_lsda.out";
+    let out = fixture(name);
+    let metrics = pw::parse_metrics(&out);
+    assert!(metrics.lsda, "{name}");
+    assert_eq!(metrics.num_kpts_total, Some(60), "{name}");
+    assert_eq!(metrics.num_kpts_all(), Some(120), "{name}");
+    assert_eq!(metrics.band_blocks.len(), 1, "{name}");
+    assert_eq!(metrics.band_blocks[0].num_kpts, Some(120), "{name}");
+
+    let name = "own/nscf_pools.out";
+    let out = fixture(name);
+    let metrics = pw::parse_metrics(&out);
+    assert!(!metrics.lsda, "{name}");
+    assert_eq!(metrics.num_kpts_all(), metrics.num_kpts_total, "{name}");
+}

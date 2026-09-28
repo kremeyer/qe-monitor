@@ -1,5 +1,23 @@
 # Changelog
 
+## 1.1.0 - 2026-09-28
+
+### Added
+- A help popup for every plot, explaining what is plotted and how to read it.
+  Toggle it with `?` or `h`.
+- Per-representation timing in the phonon chart, coloured from green to red by the
+  time each iteration took.
+- The phonon convergence threshold, with the current `|ddv_scf|²` beside it, in the
+  header panel.
+- The pressure plot distinguishes positive from negative pressure by colour and
+  marker, which the logarithmic axis would otherwise hide.
+- The version is shown in the title bar.
+
+### Fixed
+- LSDA runs report the k-points of one spin channel only, so a spin-polarised nscf
+  showed half the work as the whole job and read as finished at the midpoint.
+- The number of q-points was misread in certain phonon runs.
+
 ## 1.0.1 - 2026-09-16
 
 ### Fixed
