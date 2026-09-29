@@ -50,6 +50,7 @@ qe-monitor checks for appended content in the output file every 250 ms. It is ch
 | `Space` | switch between a side-by-side and stacked layout |
 | `a` / `d` or `←` / `→` | resize the panels (side-by-side) |
 | `w` / `s` or `↑` / `↓` | resize the panels (stacked) |
+| `h` / `?` | show help |
 
 ## License
 BSD 3-Clause, see [LICENSE](LICENSE) for details.
