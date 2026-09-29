@@ -1,7 +1,14 @@
 use chrono::{DateTime, Local, Utc};
 use crossterm::event::KeyCode;
 use ratatui::{
-    Frame, layout::{Constraint, Direction, Flex, Layout, Rect}, style::{Color, Style, Stylize}, symbols, text::Line, widgets::{Axis, Block, Borders, Chart, Clear, Dataset, GraphType, Padding, Paragraph, Tabs, Wrap},
+    Frame,
+    layout::{Constraint, Direction, Flex, Layout, Rect},
+    style::{Color, Style, Stylize},
+    symbols,
+    text::Line,
+    widgets::{
+        Axis, Block, Borders, Chart, Clear, Dataset, GraphType, Padding, Paragraph, Tabs, Wrap,
+    },
 };
 
 use crate::app::{App, Metrics};
