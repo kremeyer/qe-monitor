@@ -8,5 +8,6 @@ pub struct PhMetrics {
     pub num_representations: Vec<u32>,
     pub num_representations_completed: u32,
     pub representation_blocks: Vec<RepresentationBlock>,
+    pub block_qpoint: Vec<u32>,
     pub conv_threshold: Option<f64>,
 }

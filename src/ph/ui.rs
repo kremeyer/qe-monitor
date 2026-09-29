@@ -177,7 +177,20 @@ struct RepresentationIterationsChart {
     n_iters: Vec<u32>,
     seconds: Vec<Option<f64>>,
     secs_per_iter: Vec<Option<f64>>,
+    qpoints: Vec<u32>,
     num_reps_completed: u32,
+}
+
+const SHADE_LIGHT: Color = Color::Rgb(190, 190, 190);
+const SHADE_DARK: Color = Color::Rgb(155, 155, 155);
+
+/// Alternating shade per q-point, so the irreps of one q-point read as a block.
+fn qpoint_shade(q: u32) -> Color {
+    if q.is_multiple_of(2) {
+        SHADE_LIGHT
+    } else {
+        SHADE_DARK
+    }
 }
 
 /// Green - yellow - red smooth colorbar
@@ -207,23 +220,29 @@ fn compact_duration(secs: f64) -> String {
 
 impl From<&PhMetrics> for RepresentationIterationsChart {
     fn from(pm: &PhMetrics) -> Self {
+        let converged: Vec<(usize, &crate::pw::ScfBlock)> = pm
+            .representation_blocks
+            .iter()
+            .enumerate()
+            .filter(|(_, b)| b.iterations_to_converge().is_some())
+            .collect();
+
         Self {
-            n_iters: pm
-                .representation_blocks
+            n_iters: converged
                 .iter()
-                .filter_map(|b| b.iterations_to_converge())
+                .filter_map(|(_, b)| b.iterations_to_converge())
                 .collect(),
-            seconds: pm
-                .representation_blocks
+            seconds: converged
                 .iter()
-                .filter(|b| b.iterations_to_converge().is_some())
-                .map(|b| b.time_per_calculation())
+                .map(|(_, b)| b.time_per_calculation())
                 .collect(),
-            secs_per_iter: pm
-                .representation_blocks
+            secs_per_iter: converged
                 .iter()
-                .filter(|b| b.iterations_to_converge().is_some())
-                .map(|b| b.time_per_iteration())
+                .map(|(_, b)| b.time_per_iteration())
+                .collect(),
+            qpoints: converged
+                .iter()
+                .map(|(i, _)| pm.block_qpoint.get(*i).copied().unwrap_or(0))
                 .collect(),
             num_reps_completed: pm.num_representations_completed,
         }
@@ -262,8 +281,15 @@ impl Renderable for RepresentationIterationsChart {
             .enumerate()
             .map(|(i, &v)| {
                 let actual_index = start + i;
+                let shade = self
+                    .qpoints
+                    .get(actual_index)
+                    .copied()
+                    .map(qpoint_shade)
+                    .unwrap_or_else(|| qpoint_shade(0));
                 Bar::default()
                     .value(u64::from(v))
+                    .style(Style::default().fg(shade))
                     .label(Line::from(format!("{:n_dig_i$}", actual_index + 1)))
                     .text_value(format!("{:n_dig_v$}", v))
             })
@@ -275,7 +301,8 @@ impl Renderable for RepresentationIterationsChart {
                     .title(Line::from(" Representation Iterations ").bold().centered()),
             )
             .data(BarGroup::default().bars(&bars))
-            .bar_style(Style::default().fg(Color::Gray))
+            // the iteration count keeps one shade; only the bar tracks the q-point
+            .value_style(Style::default().fg(SHADE_LIGHT))
             .bar_gap(0)
             .bar_width(1)
             .direction(ratatui::layout::Direction::Horizontal);
@@ -312,9 +339,10 @@ impl Renderable for RepresentationIterationsChart {
             let buffer = frame.buffer_mut();
             for (k, ch) in text.chars().enumerate() {
                 let x = x0 + k as u16;
+                let cell_fg = buffer[(x, y)].fg;
                 let mut style = Style::default().fg(fg);
                 if buffer[(x, y)].symbol() == "\u{2588}" {
-                    style = style.bg(Color::Gray);
+                    style = style.bg(cell_fg);
                 }
                 buffer[(x, y)].set_char(ch).set_style(style);
             }

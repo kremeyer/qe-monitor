@@ -29,10 +29,10 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
 
     // for representation-level block
     let mut open_repr_block: Option<RepresentationBlock> = None;
-    // Clock reading when the current representation started. Its own timings only
-    // begin after the first iteration, so without this anchor a representation
-    // that converges in one iteration would appear to take no time at all.
+    // Clock reading when the current representation started. Its own timings only begin after the first iteration
     let mut block_start: Option<f64> = None;
+    let mut current_q: u32 = 0;
+    let mut open_block_q: u32 = 0;
     let mut cur_iter: Option<u32> = None;
     let mut pending_cpu_time: Option<f64> = None;
 
@@ -80,6 +80,7 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
         if line.starts_with("Calculation of q =") {
             in_degeneracy_table = false;
             num_qpoints_started += 1;
+            current_q = num_qpoints_started - 1;
             if let Some(xq) = parse_calculation_of_q(line)
                 && let Some(n_irreps) = lookup_irreps(&qpoint_table, xq)
             {
@@ -114,11 +115,13 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
                     || b.cpu_time_last.is_some())
             {
                 pm.representation_blocks.push(b);
+                pm.block_qpoint.push(open_block_q);
             }
 
             // open new block
             let b = RepresentationBlock::default();
             open_repr_block = Some(b);
+            open_block_q = current_q;
             block_start = pending_cpu_time;
             cur_iter = None;
             continue;
@@ -169,6 +172,7 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
                     || b.cpu_time_last.is_some()
                 {
                     pm.representation_blocks.push(b);
+                    pm.block_qpoint.push(open_block_q);
                 }
             }
 
@@ -199,6 +203,7 @@ pub fn parse_metrics(qe_output: &str) -> PhMetrics {
             || b.cpu_time_last.is_some()
         {
             pm.representation_blocks.push(b);
+            pm.block_qpoint.push(open_block_q);
         }
     }
 
