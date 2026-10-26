@@ -326,8 +326,6 @@ impl ConvergenceChart {
 
 impl Renderable for ConvergenceChart {
     fn render(&self, frame: &mut Frame, area: Rect) {
-        use core::f64;
-
         let block =
             Block::bordered().title(Line::from(format!(" {} ", self.title)).bold().centered());
 
