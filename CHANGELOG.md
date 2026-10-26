@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.2.0 - 2026-10-26
+
+### Added
+- The phonon chart alternates two shades of grey between q-points, so the
+  representations belonging to one q-point read as a block.
+- The footer panel says where to report bugs and contribute.
+
 ## 1.1.0 - 2026-09-28
 
 ### Added

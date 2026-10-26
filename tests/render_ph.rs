@@ -21,7 +21,11 @@ fn chart(name: &str) -> (String, Vec<String>) {
         for x in 0..buffer.area.width {
             let cell = &buffer[(x, y)];
             text.push_str(cell.symbol());
-            if matches!(cell.fg, Color::Rgb(..)) {
+            // The duration text is the gradient colour, never a neutral grey;
+            // the bars are grey, so unequal channels single out the text.
+            if let Color::Rgb(r, g, b) = cell.fg
+                && !(r == g && g == b)
+            {
                 run.push_str(cell.symbol());
             }
         }
@@ -86,14 +90,14 @@ fn duration_keeps_the_bar_visible_behind_it() {
     for y in 0..buffer.area.height {
         for x in 0..buffer.area.width {
             let cell = &buffer[(x, y)];
-            if matches!(cell.fg, Color::Rgb(..)) && cell.bg == Color::Gray {
+            if matches!(cell.fg, Color::Rgb(..)) && matches!(cell.bg, Color::Rgb(..)) {
                 on_bar += 1;
             }
         }
     }
     assert!(
         on_bar > 0,
-        "{name}: the longest bars should show grey behind the duration"
+        "{name}: the longest bars should show their shade behind the duration"
     );
 }
 
@@ -118,7 +122,9 @@ fn faster_representations_are_greener() {
     let mut rows = Vec::new();
     for y in 0..buffer.area.height {
         for x in 0..buffer.area.width {
-            if let Color::Rgb(r, g, _) = buffer[(x, y)].fg {
+            if let Color::Rgb(r, g, b) = buffer[(x, y)].fg
+                && !(r == g && g == b)
+            {
                 rows.push((y, r, g));
                 break;
             }

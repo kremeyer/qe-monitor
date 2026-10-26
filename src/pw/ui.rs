@@ -1,5 +1,3 @@
-use core::f64;
-
 use ratatui::style::{Color, Style, Stylize};
 use ratatui::{
     Frame,

@@ -6,7 +6,9 @@ use ratatui::{
     style::{Color, Style, Stylize},
     symbols,
     text::Line,
-    widgets::{Axis, Block, Borders, Chart, Clear, Dataset, GraphType, Paragraph, Tabs, Wrap},
+    widgets::{
+        Axis, Block, Borders, Chart, Clear, Dataset, GraphType, Padding, Paragraph, Tabs, Wrap,
+    },
 };
 
 use crate::app::{App, Metrics};
@@ -248,12 +250,15 @@ fn render_footer_right(frame: &mut Frame, area: Rect, app: &App) {
     } else {
         "adj. layout: W↑↓S Space "
     };
-    frame.render_widget(
+    // placeholder; implement more useful content here and move this msg to the help text of the panel
+    let placeholder = "\nReport bugs, contribute, or request features at\nhttps://github.com/kremeyer/qe-monitor\n\nmade by Laurenz Kremeyer";
+    let paragraph = Paragraph::new(placeholder).wrap(Wrap { trim: true }).block(
         Block::bordered()
             .title(Line::from(" Footer Right ").centered())
-            .title_bottom(Line::from(shortcuts).right_aligned()),
-        area,
+            .title_bottom(Line::from(shortcuts).right_aligned())
+            .padding(Padding::horizontal(2)),
     );
+    frame.render_widget(paragraph, area);
 }
 
 fn render_latest_output_lines(frame: &mut Frame, area: Rect, app: &App) {
@@ -321,8 +326,6 @@ impl ConvergenceChart {
 
 impl Renderable for ConvergenceChart {
     fn render(&self, frame: &mut Frame, area: Rect) {
-        use core::f64;
-
         let block =
             Block::bordered().title(Line::from(format!(" {} ", self.title)).bold().centered());
 
