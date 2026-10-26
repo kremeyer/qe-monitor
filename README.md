@@ -20,7 +20,7 @@ cargo install --git https://github.com/kremeyer/qe-monitor
 That builds the default branch. To pin a release instead:
 
 ```sh
-cargo install --git https://github.com/kremeyer/qe-monitor --tag v1.0.0
+cargo install --git https://github.com/kremeyer/qe-monitor --tag v1.2.0
 ```
 
 Or from a local clone, which is also what you want for development:
